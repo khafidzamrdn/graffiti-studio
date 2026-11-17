@@ -52,7 +52,8 @@ class MainActivity : ComponentActivity() {
                             factory = WorkspaceViewModel.Factory(
                                 projectId = projectId,
                                 projectRepository = container.projectRepository,
-                                preferences = container.workspacePreferences
+                                preferences = container.workspacePreferences,
+                                artworkExporter = container.artworkExporter
                             )
                         )
                         WorkspaceScreen(

@@ -10,8 +10,10 @@ import com.graffitistudio.core.domain.model.BrushConfig
 import com.graffitistudio.core.domain.model.BrushPreset
 import com.graffitistudio.core.domain.model.BrushPresets
 import com.graffitistudio.core.domain.model.BrushType
+import com.graffitistudio.core.domain.model.ExportConfig
 import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.repository.ProjectRepository
+import com.graffitistudio.core.storage.ArtworkExporter
 import com.graffitistudio.engine.drawing.DrawingEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,9 +26,14 @@ import java.util.UUID
 
 data class WorkspaceUiState(
     val projectName: String = "",
+    val documentWidth: Int = 1080,
+    val documentHeight: Int = 1080,
     val dimensionsLabel: String = "",
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
+    val isExporting: Boolean = false,
+    val isExportDialogOpen: Boolean = false,
+    val exportStatusMessage: String? = null,
     val activeBrush: BrushConfig = BrushConfig(),
     val lastUsedNonEraserType: BrushType = BrushType.PEN,
     val isBrushPanelOpen: Boolean = false,
@@ -40,6 +47,7 @@ class WorkspaceViewModel(
     private val projectId: String,
     private val projectRepository: ProjectRepository,
     private val preferences: WorkspacePreferences,
+    private val artworkExporter: ArtworkExporter,
     val drawingEngine: DrawingEngine = DrawingEngine()
 ) : ViewModel() {
 
@@ -76,6 +84,8 @@ class WorkspaceViewModel(
                 drawingEngine.loadDocument(doc) {
                     _uiState.value = _uiState.value.copy(
                         projectName = doc.name,
+                        documentWidth = doc.width,
+                        documentHeight = doc.height,
                         dimensionsLabel = "${doc.width}×${doc.height}",
                         isLoading = false,
                         activeBrush = initialBrush,
@@ -219,6 +229,46 @@ class WorkspaceViewModel(
         drawingEngine.redo()
     }
 
+    fun openExportDialog() {
+        _uiState.value = _uiState.value.copy(isExportDialogOpen = true, exportStatusMessage = null)
+    }
+
+    fun dismissExportDialog() {
+        _uiState.value = _uiState.value.copy(isExportDialogOpen = false)
+    }
+
+    fun clearExportStatus() {
+        _uiState.value = _uiState.value.copy(exportStatusMessage = null)
+    }
+
+    fun exportArtwork(config: ExportConfig) {
+        val docName = _uiState.value.projectName.ifEmpty { "GraffitiStudio" }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isExporting = true)
+            val result = runCatching {
+                val bitmap = withContext(Dispatchers.Default) {
+                    drawingEngine.renderExportBitmap(config)
+                } ?: error("Canvas not ready")
+                artworkExporter.exportBitmap(bitmap, docName, config)
+            }
+            _uiState.value = result.fold(
+                onSuccess = { exported ->
+                    _uiState.value.copy(
+                        isExporting = false,
+                        isExportDialogOpen = false,
+                        exportStatusMessage = "Exported: ${exported.locationLabel}"
+                    )
+                },
+                onFailure = { err ->
+                    _uiState.value.copy(
+                        isExporting = false,
+                        exportStatusMessage = "Export failed: ${err.message}"
+                    )
+                }
+            )
+        }
+    }
+
     fun saveProject(onSaved: (() -> Unit)? = null) {
         val doc = drawingEngine.snapshotDocument() ?: run {
             onSaved?.invoke()
@@ -246,11 +296,12 @@ class WorkspaceViewModel(
     class Factory(
         private val projectId: String,
         private val projectRepository: ProjectRepository,
-        private val preferences: WorkspacePreferences
+        private val preferences: WorkspacePreferences,
+        private val artworkExporter: ArtworkExporter
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return WorkspaceViewModel(projectId, projectRepository, preferences) as T
+            return WorkspaceViewModel(projectId, projectRepository, preferences, artworkExporter) as T
         }
     }
 }

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
@@ -31,8 +32,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,9 +68,17 @@ fun WorkspaceScreen(
     val layers by viewModel.layersState.collectAsState()
     val activeLayerId by viewModel.activeLayerIdState.collectAsState()
     var surfaceViewRef by remember { mutableStateOf<DrawingSurfaceView?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(uiState.exportStatusMessage) {
+        val msg = uiState.exportStatusMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(msg)
+        viewModel.clearExportStatus()
+    }
 
     Scaffold(
         containerColor = colors.backgroundDeep,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Row(
                 modifier = Modifier
@@ -131,6 +143,11 @@ fun WorkspaceScreen(
                         enabled = !uiState.isSaving
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "Save Project")
+                    }
+                    UrbanIconButton(
+                        onClick = { viewModel.openExportDialog() }
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = "Export Artwork")
                     }
                 }
             }
@@ -276,5 +293,15 @@ fun WorkspaceScreen(
                 CircularProgressIndicator(color = colors.accentLime)
             }
         }
+    }
+
+    if (uiState.isExportDialogOpen) {
+        ExportDialog(
+            docWidth = uiState.documentWidth,
+            docHeight = uiState.documentHeight,
+            isExporting = uiState.isExporting,
+            onDismiss = { viewModel.dismissExportDialog() },
+            onExport = { config -> viewModel.exportArtwork(config) }
+        )
     }
 }

@@ -12,6 +12,7 @@ import com.graffitistudio.core.domain.history.HistoryState
 import com.graffitistudio.core.domain.model.ArtworkDocument
 import com.graffitistudio.core.domain.model.BlendMode
 import com.graffitistudio.core.domain.model.BrushConfig
+import com.graffitistudio.core.domain.model.ExportConfig
 import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.model.StrokeData
 import com.graffitistudio.core.domain.model.StrokePoint
@@ -596,6 +597,34 @@ class DrawingEngine(
     }
 
     fun snapshotDocument(): ArtworkDocument? = synchronized(lock) { document }
+
+    fun renderExportBitmap(config: ExportConfig): Bitmap? = synchronized(lock) {
+        val doc = document ?: return@synchronized null
+        val (targetW, targetH) = config.resolveDimensions(doc.width, doc.height)
+        val outBitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+        val outCanvas = Canvas(outBitmap)
+
+        if (!config.effectiveTransparent) {
+            outCanvas.drawColor(doc.backgroundColorArgb)
+        }
+
+        val scaleX = targetW / doc.width.toFloat()
+        val scaleY = targetH / doc.height.toFloat()
+        outCanvas.save()
+        outCanvas.scale(scaleX, scaleY)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        for (layer in doc.layers) {
+            if (!layer.isVisible || layer.opacity <= 0f) continue
+            val surface = layerSurfaces[layer.id] ?: continue
+            if (surface.bitmap.isRecycled) continue
+            paint.alpha = (layer.opacity.coerceIn(0f, 1f) * 255f).toInt()
+            paint.xfermode = layer.blendMode.toPorterDuff()
+            outCanvas.drawBitmap(surface.bitmap, 0f, 0f, paint)
+        }
+        outCanvas.restore()
+        outBitmap
+    }
 
     fun renderThumbnailPngBytes(maxDimension: Int = 360): ByteArray? = synchronized(lock) {
         val bmp = compositeBitmap ?: return@synchronized null
