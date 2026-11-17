@@ -192,7 +192,7 @@ class BrushRasterizer {
     }
 
     private fun drawPencilDab(canvas: Canvas, brush: BrushConfig, x: Float, y: Float, dabIndex: Int) {
-        val rng = Random(brush.seed xor (dabIndex.toLong() * 0x9E3779B97F4A7C15L))
+        val rng = Random(brush.seed xor (dabIndex.toLong() * 0x9E3779B97F4A7C15uL.toLong()))
         val radius = max(1f, brush.sizePx * 0.5f)
         val grains = max(4, (brush.sizePx * 0.7f * brush.flow).toInt())
         fillPaint.xfermode = null
@@ -293,7 +293,7 @@ class BrushRasterizer {
         angleDeg: Float,
         dabIndex: Int
     ) {
-        val rng = Random(brush.seed xor (dabIndex.toLong() * 0x94D049BB133111EBL))
+        val rng = Random(brush.seed xor (dabIndex.toLong() * 0x94D049BB133111EBuL.toLong()))
         val radius = max(3f, brush.sizePx * 0.5f)
         val count = max(6, (brush.sizePx * 0.45f * brush.flow).toInt())
 
