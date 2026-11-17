@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.graffitistudio.core.data.preferences.WorkspacePreferences
 import com.graffitistudio.core.domain.history.HistoryState
+import com.graffitistudio.core.domain.model.BlendMode
 import com.graffitistudio.core.domain.model.BrushConfig
 import com.graffitistudio.core.domain.model.BrushPreset
 import com.graffitistudio.core.domain.model.BrushPresets
 import com.graffitistudio.core.domain.model.BrushType
+import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.repository.ProjectRepository
 import com.graffitistudio.engine.drawing.DrawingEngine
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +30,7 @@ data class WorkspaceUiState(
     val activeBrush: BrushConfig = BrushConfig(),
     val lastUsedNonEraserType: BrushType = BrushType.PEN,
     val isBrushPanelOpen: Boolean = false,
+    val isLayerPanelOpen: Boolean = false,
     val presets: List<BrushPreset> = BrushPresets.builtIn,
     val activePresetId: String? = null,
     val lastSavedMessage: String? = null
@@ -44,6 +47,8 @@ class WorkspaceViewModel(
     val uiState: StateFlow<WorkspaceUiState> = _uiState.asStateFlow()
 
     val historyState: StateFlow<HistoryState> = drawingEngine.historyState
+    val layersState: StateFlow<List<LayerData>> = drawingEngine.layersState
+    val activeLayerIdState: StateFlow<String?> = drawingEngine.activeLayerIdState
 
     init {
         loadProject()
@@ -89,9 +94,42 @@ class WorkspaceViewModel(
 
     fun toggleBrushPanel() {
         _uiState.value = _uiState.value.copy(
-            isBrushPanelOpen = !_uiState.value.isBrushPanelOpen
+            isBrushPanelOpen = !_uiState.value.isBrushPanelOpen,
+            isLayerPanelOpen = false
         )
     }
+
+    fun toggleLayerPanel() {
+        _uiState.value = _uiState.value.copy(
+            isLayerPanelOpen = !_uiState.value.isLayerPanelOpen,
+            isBrushPanelOpen = false
+        )
+    }
+
+    fun selectLayer(layerId: String) = drawingEngine.selectLayer(layerId)
+
+    fun addLayer() = drawingEngine.addLayer()
+
+    fun deleteLayer(layerId: String) = drawingEngine.deleteLayer(layerId)
+
+    fun renameLayer(layerId: String, newName: String) = drawingEngine.renameLayer(layerId, newName)
+
+    fun setLayerVisibility(layerId: String, visible: Boolean) =
+        drawingEngine.setLayerVisibility(layerId, visible)
+
+    fun setLayerOpacity(layerId: String, opacity: Float) =
+        drawingEngine.setLayerOpacity(layerId, opacity)
+
+    fun setLayerBlendMode(layerId: String, blendMode: BlendMode) =
+        drawingEngine.setLayerBlendMode(layerId, blendMode)
+
+    fun moveLayerUp(layerId: String) = drawingEngine.moveLayer(layerId, delta = 1)
+
+    fun moveLayerDown(layerId: String) = drawingEngine.moveLayer(layerId, delta = -1)
+
+    fun duplicateLayer(layerId: String) = drawingEngine.duplicateLayer(layerId)
+
+    fun mergeLayerDown(layerId: String) = drawingEngine.mergeLayerDown(layerId)
 
     fun selectBrushType(type: BrushType) {
         val current = _uiState.value.activeBrush

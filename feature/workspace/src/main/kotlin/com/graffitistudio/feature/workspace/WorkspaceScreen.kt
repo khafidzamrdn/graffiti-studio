@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,6 +61,8 @@ fun WorkspaceScreen(
     val colors = LocalUrbanColors.current
     val uiState by viewModel.uiState.collectAsState()
     val historyState by viewModel.historyState.collectAsState()
+    val layers by viewModel.layersState.collectAsState()
+    val activeLayerId by viewModel.activeLayerIdState.collectAsState()
     var surfaceViewRef by remember { mutableStateOf<DrawingSurfaceView?>(null) }
 
     Scaffold(
@@ -113,6 +116,12 @@ fun WorkspaceScreen(
                         Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
                     }
                     UrbanIconButton(
+                        onClick = { viewModel.toggleLayerPanel() },
+                        selected = uiState.isLayerPanelOpen
+                    ) {
+                        Icon(Icons.Default.Layers, contentDescription = "Layers")
+                    }
+                    UrbanIconButton(
                         onClick = { surfaceViewRef?.resetViewport() }
                     ) {
                         Icon(Icons.Default.CenterFocusStrong, contentDescription = "Fit Canvas")
@@ -133,6 +142,24 @@ fun WorkspaceScreen(
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                AnimatedVisibility(visible = uiState.isLayerPanelOpen) {
+                    LayerPanel(
+                        layers = layers,
+                        activeLayerId = activeLayerId,
+                        onSelectLayer = viewModel::selectLayer,
+                        onAddLayer = viewModel::addLayer,
+                        onDeleteLayer = viewModel::deleteLayer,
+                        onRenameLayer = viewModel::renameLayer,
+                        onToggleVisibility = viewModel::setLayerVisibility,
+                        onOpacityChange = viewModel::setLayerOpacity,
+                        onBlendModeChange = viewModel::setLayerBlendMode,
+                        onMoveUp = viewModel::moveLayerUp,
+                        onMoveDown = viewModel::moveLayerDown,
+                        onDuplicate = viewModel::duplicateLayer,
+                        onMergeDown = viewModel::mergeLayerDown
+                    )
+                }
+
                 AnimatedVisibility(visible = uiState.isBrushPanelOpen) {
                     BrushStudioPanel(
                         activeBrush = uiState.activeBrush,

@@ -2,11 +2,15 @@ package com.graffitistudio.engine.drawing
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import com.graffitistudio.core.domain.history.HistoryManager
 import com.graffitistudio.core.domain.history.HistoryState
 import com.graffitistudio.core.domain.model.ArtworkDocument
+import com.graffitistudio.core.domain.model.BlendMode
 import com.graffitistudio.core.domain.model.BrushConfig
 import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.model.StrokeData
@@ -15,7 +19,9 @@ import com.graffitistudio.engine.rendering.RenderBackend
 import com.graffitistudio.engine.rendering.RenderLayer
 import com.graffitistudio.engine.rendering.SoftwareCanvasRenderBackend
 import com.graffitistudio.engine.rendering.TileGrid
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -28,13 +34,19 @@ import kotlin.math.min
  * Core drawing engine independent of Jetpack Compose.
  *
  * Owns document layer surfaces, tile-based dirty tracking, brush rasterization,
- * and the command-based [HistoryManager].
+ * layer management, and the command-based [HistoryManager].
  */
 class DrawingEngine(
     private val renderBackend: RenderBackend = SoftwareCanvasRenderBackend(),
     private val historyManager: HistoryManager = HistoryManager(maxHistorySize = 60)
 ) {
     val historyState: StateFlow<HistoryState> = historyManager.state
+
+    private val _layersState = MutableStateFlow<List<LayerData>>(emptyList())
+    val layersState: StateFlow<List<LayerData>> = _layersState.asStateFlow()
+
+    private val _activeLayerIdState = MutableStateFlow<String?>(null)
+    val activeLayerIdState: StateFlow<String?> = _activeLayerIdState.asStateFlow()
 
     private val lock = Any()
     private val rasterizer = BrushRasterizer()
@@ -93,15 +105,11 @@ class DrawingEngine(
                 compositeCanvas = Canvas(compositeBitmap!!)
 
                 for (layer in normalizedDoc.layers) {
-                    val bmp = renderBackend.allocateSurface(normalizedDoc.width, normalizedDoc.height)
-                    val canvas = Canvas(bmp)
-                    for (stroke in layer.strokes) {
-                        rasterizer.drawStroke(canvas, stroke)
-                    }
-                    layerSurfaces[layer.id] = LayerSurface(layer.id, bmp, canvas)
+                    allocateAndRasterizeLayerLocked(normalizedDoc.width, normalizedDoc.height, layer)
                 }
 
                 activeLayerId = normalizedDoc.layers.last().id
+                syncLayerFlowsLocked()
                 tileGrid?.markAllDirty()
                 recompositeDirtyTilesLocked()
             }
@@ -122,6 +130,271 @@ class DrawingEngine(
     fun getDocumentSize(): Pair<Int, Int>? = synchronized(lock) {
         document?.let { it.width to it.height }
     }
+
+    // --- Layer Engine Operations ---
+
+    fun selectLayer(layerId: String) {
+        synchronized(lock) {
+            val doc = document ?: return
+            if (doc.layers.any { it.id == layerId }) {
+                activeLayerId = layerId
+                _activeLayerIdState.value = layerId
+            }
+        }
+    }
+
+    fun addLayer(name: String? = null) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val beforeLayers = doc.layers
+            val beforeActive = activeLayerId
+            val newLayer = LayerData(
+                id = UUID.randomUUID().toString(),
+                name = name?.trim()?.ifEmpty { null } ?: "Layer ${beforeLayers.size + 1}"
+            )
+            val insertIndex = (beforeLayers.indexOfFirst { it.id == beforeActive }
+                .takeIf { it >= 0 } ?: (beforeLayers.size - 1)) + 1
+            val afterLayers = beforeLayers.toMutableList().apply { add(insertIndex, newLayer) }
+
+            val command = LayerStructureCommand(
+                description = "Add Layer",
+                beforeLayers = beforeLayers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = beforeActive,
+                afterActiveLayerId = newLayer.id,
+                onApplyLayers = ::applyLayerStructureChange
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    fun deleteLayer(layerId: String) {
+        synchronized(lock) {
+            val doc = document ?: return
+            if (doc.layers.size <= 1) return
+            val index = doc.layers.indexOfFirst { it.id == layerId }
+            if (index < 0) return
+
+            val beforeLayers = doc.layers
+            val beforeActive = activeLayerId
+            val afterLayers = beforeLayers.filterNot { it.id == layerId }
+            val afterActive = if (beforeActive == layerId) {
+                afterLayers[min(index, afterLayers.lastIndex)].id
+            } else {
+                beforeActive
+            }
+
+            val command = LayerStructureCommand(
+                description = "Delete Layer",
+                beforeLayers = beforeLayers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = beforeActive,
+                afterActiveLayerId = afterActive,
+                onApplyLayers = ::applyLayerStructureChange
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    fun renameLayer(layerId: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+        updateLayerMetadata(layerId, "Rename Layer") { it.copy(name = trimmed) }
+    }
+
+    fun setLayerVisibility(layerId: String, isVisible: Boolean) {
+        updateLayerMetadata(layerId, "Toggle Layer Visibility") { it.copy(isVisible = isVisible) }
+    }
+
+    fun setLayerOpacity(layerId: String, opacity: Float) {
+        val clamped = opacity.coerceIn(0f, 1f)
+        updateLayerMetadata(layerId, "Layer Opacity") { it.copy(opacity = clamped) }
+    }
+
+    fun setLayerBlendMode(layerId: String, blendMode: BlendMode) {
+        updateLayerMetadata(layerId, "Layer Blend Mode") { it.copy(blendMode = blendMode) }
+    }
+
+    fun moveLayer(layerId: String, delta: Int) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val index = doc.layers.indexOfFirst { it.id == layerId }
+            if (index < 0) return
+            val targetIndex = (index + delta).coerceIn(0, doc.layers.lastIndex)
+            if (targetIndex == index) return
+
+            val beforeLayers = doc.layers
+            val afterLayers = beforeLayers.toMutableList().apply {
+                val item = removeAt(index)
+                add(targetIndex, item)
+            }
+
+            val command = LayerStructureCommand(
+                description = "Reorder Layer",
+                beforeLayers = beforeLayers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = activeLayerId,
+                afterActiveLayerId = activeLayerId,
+                onApplyLayers = ::applyLayerStructureChange
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    fun duplicateLayer(layerId: String) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val index = doc.layers.indexOfFirst { it.id == layerId }
+            if (index < 0) return
+
+            val source = doc.layers[index]
+            val newId = UUID.randomUUID().toString()
+            val duplicated = source.copy(
+                id = newId,
+                name = "${source.name} Copy",
+                strokes = source.strokes.map { it.copy(id = UUID.randomUUID().toString(), layerId = newId) }
+            )
+
+            // Fast bitmap clone from existing cached surface so strokes don't need re-rasterization
+            val srcSurface = layerSurfaces[source.id]
+            if (srcSurface != null) {
+                val cloneBmp = renderBackend.allocateSurface(doc.width, doc.height)
+                val cloneCanvas = Canvas(cloneBmp)
+                cloneCanvas.drawBitmap(srcSurface.bitmap, 0f, 0f, null)
+                layerSurfaces[newId] = LayerSurface(newId, cloneBmp, cloneCanvas)
+            }
+
+            val afterLayers = doc.layers.toMutableList().apply { add(index + 1, duplicated) }
+            val command = LayerStructureCommand(
+                description = "Duplicate Layer",
+                beforeLayers = doc.layers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = activeLayerId,
+                afterActiveLayerId = newId,
+                onApplyLayers = ::applyLayerStructureChange
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    fun mergeLayerDown(layerId: String) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val index = doc.layers.indexOfFirst { it.id == layerId }
+            if (index <= 0) return
+
+            val topLayer = doc.layers[index]
+            val bottomLayer = doc.layers[index - 1]
+            val mergedStrokes = bottomLayer.strokes + topLayer.strokes.map {
+                it.copy(layerId = bottomLayer.id)
+            }
+            val mergedLayer = bottomLayer.copy(strokes = mergedStrokes)
+
+            // Fast composite onto bottom surface if both are normal opacity/visibility
+            val topSurface = layerSurfaces[topLayer.id]
+            val bottomSurface = layerSurfaces[bottomLayer.id]
+            if (topSurface != null && bottomSurface != null && topLayer.isVisible && topLayer.opacity > 0f) {
+                val mergePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    alpha = (topLayer.opacity.coerceIn(0f, 1f) * 255f).toInt()
+                    xfermode = topLayer.blendMode.toPorterDuff()
+                }
+                bottomSurface.canvas.drawBitmap(topSurface.bitmap, 0f, 0f, mergePaint)
+            }
+
+            val afterLayers = doc.layers.toMutableList().apply {
+                set(index - 1, mergedLayer)
+                removeAt(index)
+            }
+
+            val command = LayerStructureCommand(
+                description = "Merge Layer Down",
+                beforeLayers = doc.layers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = activeLayerId,
+                afterActiveLayerId = bottomLayer.id,
+                onApplyLayers = ::applyLayerStructureChange
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    private fun updateLayerMetadata(
+        layerId: String,
+        description: String,
+        transform: (LayerData) -> LayerData
+    ) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val beforeLayer = doc.layers.firstOrNull { it.id == layerId } ?: return
+            val afterLayer = transform(beforeLayer)
+            if (beforeLayer == afterLayer) return
+
+            val command = UpdateLayerMetadataCommand(
+                description = description,
+                layerId = layerId,
+                beforeLayer = beforeLayer,
+                afterLayer = afterLayer,
+                onUpdateLayer = { target ->
+                    synchronized(lock) {
+                        val currentDoc = document ?: return@synchronized
+                        document = currentDoc.replaceLayer(target)
+                        syncLayerFlowsLocked()
+                        tileGrid?.markAllDirty()
+                        recompositeDirtyTilesLocked()
+                    }
+                    onFrameInvalidated?.invoke()
+                }
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    private fun applyLayerStructureChange(layers: List<LayerData>, nextActiveLayerId: String?) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val targetIds = layers.map { it.id }.toSet()
+
+            // Release surfaces no longer present
+            val iterator = layerSurfaces.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.key !in targetIds) {
+                    renderBackend.releaseSurface(entry.value.bitmap)
+                    iterator.remove()
+                }
+            }
+
+            // Allocate/rasterize any missing surfaces (e.g., undone delete or undone merge)
+            for (layer in layers) {
+                if (!layerSurfaces.containsKey(layer.id)) {
+                    allocateAndRasterizeLayerLocked(doc.width, doc.height, layer)
+                }
+            }
+
+            document = doc.copy(layers = layers)
+            activeLayerId = nextActiveLayerId?.takeIf { it in targetIds } ?: layers.lastOrNull()?.id
+            syncLayerFlowsLocked()
+            tileGrid?.markAllDirty()
+            recompositeDirtyTilesLocked()
+        }
+        onFrameInvalidated?.invoke()
+    }
+
+    private fun allocateAndRasterizeLayerLocked(width: Int, height: Int, layer: LayerData) {
+        val bmp = renderBackend.allocateSurface(width, height)
+        val canvas = Canvas(bmp)
+        for (stroke in layer.strokes) {
+            rasterizer.drawStroke(canvas, stroke)
+        }
+        layerSurfaces[layer.id] = LayerSurface(layer.id, bmp, canvas)
+    }
+
+    private fun syncLayerFlowsLocked() {
+        _layersState.value = document?.layers ?: emptyList()
+        _activeLayerIdState.value = activeLayerId
+    }
+
+    // --- Stroke Operations ---
 
     fun beginStroke(x: Float, y: Float, pressure: Float, timestampMs: Long) {
         synchronized(lock) {
@@ -385,6 +658,7 @@ class DrawingEngine(
             }
         }
         document = doc.copy(layers = updatedLayers)
+        syncLayerFlowsLocked()
     }
 
     private fun removeStrokeFromDocumentLocked(layerId: String, strokeId: String) {
@@ -397,6 +671,7 @@ class DrawingEngine(
             }
         }
         document = doc.copy(layers = updatedLayers)
+        syncLayerFlowsLocked()
     }
 
     private fun releaseSurfacesLocked() {
@@ -408,5 +683,14 @@ class DrawingEngine(
         compositeCanvas = null
         layerSurfaces.values.forEach { renderBackend.releaseSurface(it.bitmap) }
         layerSurfaces.clear()
+    }
+
+    private fun BlendMode.toPorterDuff(): PorterDuffXfermode? = when (this) {
+        BlendMode.NORMAL -> null
+        BlendMode.MULTIPLY -> PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
+        BlendMode.SCREEN -> PorterDuffXfermode(PorterDuff.Mode.SCREEN)
+        BlendMode.OVERLAY -> PorterDuffXfermode(PorterDuff.Mode.OVERLAY)
+        BlendMode.DARKEN -> PorterDuffXfermode(PorterDuff.Mode.DARKEN)
+        BlendMode.LIGHTEN -> PorterDuffXfermode(PorterDuff.Mode.LIGHTEN)
     }
 }
