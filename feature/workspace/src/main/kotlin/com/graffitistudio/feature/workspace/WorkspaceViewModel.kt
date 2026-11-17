@@ -13,10 +13,12 @@ import com.graffitistudio.core.domain.model.BrushType
 import com.graffitistudio.core.domain.model.ExportConfig
 import com.graffitistudio.core.domain.model.GraffitiTextElement
 import com.graffitistudio.core.domain.model.LayerData
+import com.graffitistudio.core.domain.model.LayerEffect
 import com.graffitistudio.core.domain.repository.ProjectRepository
 import com.graffitistudio.core.storage.ArtworkExporter
 import com.graffitistudio.engine.drawing.DrawingEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +37,8 @@ data class WorkspaceUiState(
     val isExporting: Boolean = false,
     val isExportDialogOpen: Boolean = false,
     val isTypographyDialogOpen: Boolean = false,
+    val isEffectsDialogOpen: Boolean = false,
+    val isColorPickerOpen: Boolean = false,
     val exportStatusMessage: String? = null,
     val activeBrush: BrushConfig = BrushConfig(),
     val lastUsedNonEraserType: BrushType = BrushType.PEN,
@@ -63,6 +67,17 @@ class WorkspaceViewModel(
     init {
         loadProject()
         observeCustomPresets()
+        startBackgroundAutosave()
+    }
+
+    private fun startBackgroundAutosave() {
+        viewModelScope.launch {
+            while (true) {
+                delay(20_000L)
+                val doc = drawingEngine.snapshotDocument() ?: continue
+                projectRepository.autosaveDocument(doc)
+            }
+        }
     }
 
     private fun observeCustomPresets() {
@@ -246,6 +261,34 @@ class WorkspaceViewModel(
 
     fun deleteTextElement(layerId: String, elementId: String) {
         drawingEngine.deleteTextElement(layerId, elementId)
+    }
+
+    fun openEffectsDialog() {
+        _uiState.value = _uiState.value.copy(isEffectsDialogOpen = true)
+    }
+
+    fun dismissEffectsDialog() {
+        _uiState.value = _uiState.value.copy(isEffectsDialogOpen = false)
+    }
+
+    fun addLayerEffect(layerId: String, effect: LayerEffect) {
+        drawingEngine.addLayerEffect(layerId, effect)
+    }
+
+    fun removeLayerEffect(layerId: String, effectId: String) {
+        drawingEngine.removeLayerEffect(layerId, effectId)
+    }
+
+    fun openColorPicker() {
+        _uiState.value = _uiState.value.copy(isColorPickerOpen = true)
+    }
+
+    fun dismissColorPicker() {
+        _uiState.value = _uiState.value.copy(isColorPickerOpen = false)
+    }
+
+    fun trimMemory(level: Int) {
+        drawingEngine.trimMemory(level)
     }
 
     fun openExportDialog() {

@@ -15,6 +15,7 @@ import com.graffitistudio.core.domain.model.BrushConfig
 import com.graffitistudio.core.domain.model.ExportConfig
 import com.graffitistudio.core.domain.model.GraffitiTextElement
 import com.graffitistudio.core.domain.model.LayerData
+import com.graffitistudio.core.domain.model.LayerEffect
 import com.graffitistudio.core.domain.model.StrokeData
 import com.graffitistudio.core.domain.model.StrokePoint
 import com.graffitistudio.engine.rendering.RenderBackend
@@ -53,6 +54,7 @@ class DrawingEngine(
     private val lock = Any()
     private val rasterizer = BrushRasterizer()
     private val textRenderer = GraffitiTextRenderer()
+    private val effectsRenderer = LayerEffectsRenderer(renderBackend.bitmapPool)
     private val stabilizer = StrokeStabilizer()
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
 
@@ -315,6 +317,72 @@ class DrawingEngine(
         }
     }
 
+    fun addLayerEffect(layerId: String, effect: LayerEffect) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val targetId = layerId.ifEmpty { activeLayerId ?: return }
+            val normalized = if (effect.seed == 0L) {
+                effect.copy(seed = System.nanoTime())
+            } else {
+                effect
+            }
+            val beforeLayers = doc.layers
+            val afterLayers = beforeLayers.map { layer ->
+                if (layer.id == targetId) {
+                    layer.copy(effects = layer.effects + normalized)
+                } else {
+                    layer
+                }
+            }
+            if (beforeLayers == afterLayers) return
+
+            val command = LayerStructureCommand(
+                description = "Add ${effect.type.displayName}",
+                beforeLayers = beforeLayers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = activeLayerId,
+                afterActiveLayerId = targetId,
+                onApplyLayers = { layers, nextActive ->
+                    synchronized(lock) {
+                        layerSurfaces.remove(targetId)?.let { renderBackend.releaseSurface(it.bitmap) }
+                    }
+                    applyLayerStructureChange(layers, nextActive)
+                }
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    fun removeLayerEffect(layerId: String, effectId: String) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val beforeLayers = doc.layers
+            val afterLayers = beforeLayers.map { layer ->
+                if (layer.id == layerId) {
+                    layer.copy(effects = layer.effects.filterNot { it.id == effectId })
+                } else {
+                    layer
+                }
+            }
+            if (beforeLayers == afterLayers) return
+
+            val command = LayerStructureCommand(
+                description = "Remove Effect",
+                beforeLayers = beforeLayers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = activeLayerId,
+                afterActiveLayerId = activeLayerId,
+                onApplyLayers = { layers, nextActive ->
+                    synchronized(lock) {
+                        layerSurfaces.remove(layerId)?.let { renderBackend.releaseSurface(it.bitmap) }
+                    }
+                    applyLayerStructureChange(layers, nextActive)
+                }
+            )
+            historyManager.execute(command)
+        }
+    }
+
     fun duplicateLayer(layerId: String) {
         synchronized(lock) {
             val doc = document ?: return
@@ -462,6 +530,9 @@ class DrawingEngine(
         }
         for (textElement in layer.textElements) {
             textRenderer.drawText(canvas, textElement)
+        }
+        for (effect in layer.effects) {
+            effectsRenderer.applyEffect(bmp, canvas, effect)
         }
         layerSurfaces[layer.id] = LayerSurface(layer.id, bmp, canvas)
     }

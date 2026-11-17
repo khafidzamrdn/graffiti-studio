@@ -94,6 +94,10 @@ class ProjectRepositoryImpl(
         projectDao.upsert(entity)
     }
 
+    override suspend fun autosaveDocument(document: ArtworkDocument) {
+        storage.saveAutosave(document)
+    }
+
     override suspend fun renameProject(projectId: String, newName: String) {
         val now = System.currentTimeMillis()
         projectDao.rename(projectId, newName, now)

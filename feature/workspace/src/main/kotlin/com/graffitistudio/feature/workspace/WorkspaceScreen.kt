@@ -1,5 +1,7 @@
 package com.graffitistudio.feature.workspace
 
+import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,11 +21,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Tune
@@ -37,6 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -47,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -70,6 +76,26 @@ fun WorkspaceScreen(
     val activeLayerId by viewModel.activeLayerIdState.collectAsState()
     var surfaceViewRef by remember { mutableStateOf<DrawingSurfaceView?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+
+    DisposableEffect(context) {
+        val callbacks = object : ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                viewModel.trimMemory(level)
+            }
+
+            override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+            @Deprecated("Deprecated in Java")
+            override fun onLowMemory() {
+                viewModel.trimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+            }
+        }
+        context.applicationContext.registerComponentCallbacks(callbacks)
+        onDispose {
+            context.applicationContext.unregisterComponentCallbacks(callbacks)
+        }
+    }
 
     LaunchedEffect(uiState.exportStatusMessage) {
         val msg = uiState.exportStatusMessage ?: return@LaunchedEffect
@@ -132,6 +158,11 @@ fun WorkspaceScreen(
                         onClick = { viewModel.openTypographyDialog() }
                     ) {
                         Icon(Icons.Default.Title, contentDescription = "Graffiti Typography")
+                    }
+                    UrbanIconButton(
+                        onClick = { viewModel.openEffectsDialog() }
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "Effects Studio")
                     }
                     UrbanIconButton(
                         onClick = { viewModel.toggleLayerPanel() },
@@ -261,7 +292,7 @@ fun WorkspaceScreen(
                                     uiState.activeBrush.colorArgb == argb
                                 Box(
                                     modifier = Modifier
-                                        .size(28.dp)
+                                        .size(26.dp)
                                         .clip(CircleShape)
                                         .background(Color(argb))
                                         .border(
@@ -270,6 +301,16 @@ fun WorkspaceScreen(
                                             shape = CircleShape
                                         )
                                         .clickable { viewModel.setBrushColor(argb) }
+                                )
+                            }
+                            UrbanIconButton(
+                                onClick = { viewModel.openColorPicker() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = "Custom Color Picker",
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -325,5 +366,30 @@ fun WorkspaceScreen(
                 onDelete = { layerId, elementId -> viewModel.deleteTextElement(layerId, elementId) }
             )
         }
+    }
+
+    if (uiState.isEffectsDialogOpen) {
+        val currentLayerId = activeLayerId ?: layers.lastOrNull()?.id
+        if (currentLayerId != null) {
+            val activeEffects = layers.firstOrNull { it.id == currentLayerId }?.effects.orEmpty()
+            EffectsStudioDialog(
+                activeLayerId = currentLayerId,
+                activeEffects = activeEffects,
+                onDismiss = { viewModel.dismissEffectsDialog() },
+                onApplyEffect = { layerId, fx -> viewModel.addLayerEffect(layerId, fx) },
+                onRemoveEffect = { layerId, fxId -> viewModel.removeLayerEffect(layerId, fxId) }
+            )
+        }
+    }
+
+    if (uiState.isColorPickerOpen) {
+        ColorPickerDialog(
+            initialColorArgb = uiState.activeBrush.colorArgb,
+            onDismiss = { viewModel.dismissColorPicker() },
+            onSelectColor = { argb ->
+                viewModel.setBrushColor(argb)
+                viewModel.dismissColorPicker()
+            }
+        )
     }
 }

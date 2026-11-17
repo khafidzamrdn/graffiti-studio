@@ -23,6 +23,8 @@ interface ProjectRepository {
         thumbnailPngBytes: ByteArray? = null
     )
 
+    suspend fun autosaveDocument(document: ArtworkDocument)
+
     suspend fun renameProject(projectId: String, newName: String)
 
     suspend fun deleteProject(projectId: String)

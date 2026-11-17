@@ -23,15 +23,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +46,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.graffitistudio.core.designsystem.component.UrbanPanel
 import com.graffitistudio.core.designsystem.component.UrbanPrimaryButton
 import com.graffitistudio.core.designsystem.theme.LocalUrbanColors
@@ -54,6 +61,7 @@ fun HomeScreen(
     val colors = LocalUrbanColors.current
     val projects by viewModel.projects.collectAsState()
     val showCreateDialog by viewModel.showCreateDialog.collectAsState()
+    var renamingProject by remember { mutableStateOf<ProjectMetadata?>(null) }
 
     Scaffold(
         containerColor = colors.backgroundDeep
@@ -137,6 +145,7 @@ fun HomeScreen(
                         ProjectCard(
                             project = project,
                             onClick = { onOpenProject(project.id) },
+                            onRename = { renamingProject = project },
                             onDelete = { viewModel.deleteProject(project.id) }
                         )
                     }
@@ -153,12 +162,74 @@ fun HomeScreen(
             }
         )
     }
+
+    renamingProject?.let { target ->
+        RenameProjectDialog(
+            initialName = target.name,
+            onDismiss = { renamingProject = null },
+            onConfirm = { newName ->
+                viewModel.renameProject(target.id, newName)
+                renamingProject = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun RenameProjectDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val colors = LocalUrbanColors.current
+    var name by remember { mutableStateOf(initialName) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        UrbanPanel {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "RENAME PROJECT",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.textPrimary
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.accentLime,
+                        unfocusedBorderColor = colors.borderSubtle,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary
+                    )
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = colors.textSecondary)
+                    }
+                    UrbanPrimaryButton(onClick = { onConfirm(name) }) {
+                        Text("Save")
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun ProjectCard(
     project: ProjectMetadata,
     onClick: () -> Unit,
+    onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
     val colors = LocalUrbanColors.current
@@ -215,11 +286,20 @@ private fun ProjectCard(
                     )
                 }
 
-                IconButton(onClick = onDelete) {
+                IconButton(onClick = onRename, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Rename project",
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = Icons.Default.DeleteOutline,
                         contentDescription = "Delete project",
-                        tint = colors.textSecondary
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

@@ -164,6 +164,26 @@ data class GraffitiTextElement(
 )
 
 @Serializable
+enum class EffectType(val displayName: String) {
+    SPRAY_TEXTURE("Spray Texture"),
+    PAINT_SPLATTER("Paint Splatter"),
+    GLOW("Glow"),
+    BLUR("Blur"),
+    NOISE("Noise"),
+    HALFTONE("Halftone")
+}
+
+@Serializable
+data class LayerEffect(
+    val id: String,
+    val type: EffectType,
+    val intensity: Float = 0.6f,
+    val radiusPx: Float = 16f,
+    val colorArgb: Int = 0xFFB8FF3B.toInt(),
+    val seed: Long = 0L
+)
+
+@Serializable
 data class LayerData(
     val id: String,
     val name: String,
@@ -171,7 +191,8 @@ data class LayerData(
     val opacity: Float = 1f,
     val blendMode: BlendMode = BlendMode.NORMAL,
     val strokes: List<StrokeData> = emptyList(),
-    val textElements: List<GraffitiTextElement> = emptyList()
+    val textElements: List<GraffitiTextElement> = emptyList(),
+    val effects: List<LayerEffect> = emptyList()
 )
 
 @Serializable

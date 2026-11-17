@@ -55,6 +55,14 @@ class HomeViewModel(
         }
     }
 
+    fun renameProject(projectId: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            projectRepository.renameProject(projectId, trimmed)
+        }
+    }
+
     fun deleteProject(projectId: String) {
         viewModelScope.launch {
             projectRepository.deleteProject(projectId)
