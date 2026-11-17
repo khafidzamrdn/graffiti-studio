@@ -135,13 +135,43 @@ data class StrokeData(
 )
 
 @Serializable
+enum class GraffitiTextStyle(val displayName: String) {
+    STANDARD("Standard"),
+    BUBBLE("Bubble"),
+    CHROME("Chrome"),
+    BLOCK_3D("3D Block")
+}
+
+@Serializable
+data class GraffitiTextElement(
+    val id: String,
+    val layerId: String,
+    val text: String,
+    val x: Float,
+    val y: Float,
+    val fontSizePx: Float = 140f,
+    val letterSpacing: Float = 0.06f,
+    val style: GraffitiTextStyle = GraffitiTextStyle.BUBBLE,
+    val primaryColorArgb: Int = 0xFFB8FF3B.toInt(),
+    val secondaryColorArgb: Int = 0xFF2EE6D6.toInt(),
+    val useGradientFill: Boolean = true,
+    val outlineColorArgb: Int = 0xFF0D0E12.toInt(),
+    val outlineWidthPx: Float = 14f,
+    val shadowEnabled: Boolean = true,
+    val shadowOffsetPx: Float = 12f,
+    val extrusionDepthPx: Float = 18f,
+    val extrusionColorArgb: Int = 0xFF1C1F27.toInt()
+)
+
+@Serializable
 data class LayerData(
     val id: String,
     val name: String,
     val isVisible: Boolean = true,
     val opacity: Float = 1f,
     val blendMode: BlendMode = BlendMode.NORMAL,
-    val strokes: List<StrokeData> = emptyList()
+    val strokes: List<StrokeData> = emptyList(),
+    val textElements: List<GraffitiTextElement> = emptyList()
 )
 
 @Serializable

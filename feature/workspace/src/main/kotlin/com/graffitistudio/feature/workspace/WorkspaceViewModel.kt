@@ -11,6 +11,7 @@ import com.graffitistudio.core.domain.model.BrushPreset
 import com.graffitistudio.core.domain.model.BrushPresets
 import com.graffitistudio.core.domain.model.BrushType
 import com.graffitistudio.core.domain.model.ExportConfig
+import com.graffitistudio.core.domain.model.GraffitiTextElement
 import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.repository.ProjectRepository
 import com.graffitistudio.core.storage.ArtworkExporter
@@ -33,6 +34,7 @@ data class WorkspaceUiState(
     val isSaving: Boolean = false,
     val isExporting: Boolean = false,
     val isExportDialogOpen: Boolean = false,
+    val isTypographyDialogOpen: Boolean = false,
     val exportStatusMessage: String? = null,
     val activeBrush: BrushConfig = BrushConfig(),
     val lastUsedNonEraserType: BrushType = BrushType.PEN,
@@ -227,6 +229,23 @@ class WorkspaceViewModel(
 
     fun redo() {
         drawingEngine.redo()
+    }
+
+    fun openTypographyDialog() {
+        _uiState.value = _uiState.value.copy(isTypographyDialogOpen = true)
+    }
+
+    fun dismissTypographyDialog() {
+        _uiState.value = _uiState.value.copy(isTypographyDialogOpen = false)
+    }
+
+    fun upsertTextElement(element: GraffitiTextElement) {
+        drawingEngine.upsertTextElement(element)
+        _uiState.value = _uiState.value.copy(isTypographyDialogOpen = false)
+    }
+
+    fun deleteTextElement(layerId: String, elementId: String) {
+        drawingEngine.deleteTextElement(layerId, elementId)
     }
 
     fun openExportDialog() {

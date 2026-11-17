@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -126,6 +127,11 @@ fun WorkspaceScreen(
                         enabled = historyState.canRedo
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+                    }
+                    UrbanIconButton(
+                        onClick = { viewModel.openTypographyDialog() }
+                    ) {
+                        Icon(Icons.Default.Title, contentDescription = "Graffiti Typography")
                     }
                     UrbanIconButton(
                         onClick = { viewModel.toggleLayerPanel() },
@@ -303,5 +309,21 @@ fun WorkspaceScreen(
             onDismiss = { viewModel.dismissExportDialog() },
             onExport = { config -> viewModel.exportArtwork(config) }
         )
+    }
+
+    if (uiState.isTypographyDialogOpen) {
+        val currentLayerId = activeLayerId ?: layers.lastOrNull()?.id
+        if (currentLayerId != null) {
+            val activeElements = layers.firstOrNull { it.id == currentLayerId }?.textElements.orEmpty()
+            TypographyDialog(
+                activeLayerId = currentLayerId,
+                existingElements = activeElements,
+                docWidth = uiState.documentWidth,
+                docHeight = uiState.documentHeight,
+                onDismiss = { viewModel.dismissTypographyDialog() },
+                onApply = { element -> viewModel.upsertTextElement(element) },
+                onDelete = { layerId, elementId -> viewModel.deleteTextElement(layerId, elementId) }
+            )
+        }
     }
 }

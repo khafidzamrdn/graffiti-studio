@@ -13,6 +13,7 @@ import com.graffitistudio.core.domain.model.ArtworkDocument
 import com.graffitistudio.core.domain.model.BlendMode
 import com.graffitistudio.core.domain.model.BrushConfig
 import com.graffitistudio.core.domain.model.ExportConfig
+import com.graffitistudio.core.domain.model.GraffitiTextElement
 import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.model.StrokeData
 import com.graffitistudio.core.domain.model.StrokePoint
@@ -51,6 +52,7 @@ class DrawingEngine(
 
     private val lock = Any()
     private val rasterizer = BrushRasterizer()
+    private val textRenderer = GraffitiTextRenderer()
     private val stabilizer = StrokeStabilizer()
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
 
@@ -242,6 +244,77 @@ class DrawingEngine(
         }
     }
 
+    fun upsertTextElement(element: GraffitiTextElement) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val targetLayerId = element.layerId.ifEmpty { activeLayerId ?: return }
+            val normalized = element.copy(layerId = targetLayerId)
+            val beforeLayers = doc.layers
+            val afterLayers = beforeLayers.map { layer ->
+                if (layer.id == targetLayerId) {
+                    val existingIdx = layer.textElements.indexOfFirst { it.id == normalized.id }
+                    val updatedElements = if (existingIdx >= 0) {
+                        layer.textElements.toMutableList().apply { set(existingIdx, normalized) }
+                    } else {
+                        layer.textElements + normalized
+                    }
+                    layer.copy(textElements = updatedElements)
+                } else {
+                    layer
+                }
+            }
+
+            // Force re-rasterization of the modified layer surface
+            layerSurfaces.remove(targetLayerId)?.let { renderBackend.releaseSurface(it.bitmap) }
+
+            val command = LayerStructureCommand(
+                description = "Graffiti Text",
+                beforeLayers = beforeLayers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = activeLayerId,
+                afterActiveLayerId = targetLayerId,
+                onApplyLayers = { layers, nextActive ->
+                    // Release target layer surface so undo/redo re-rasterizes its text cleanly
+                    synchronized(lock) {
+                        layerSurfaces.remove(targetLayerId)?.let { renderBackend.releaseSurface(it.bitmap) }
+                    }
+                    applyLayerStructureChange(layers, nextActive)
+                }
+            )
+            historyManager.execute(command)
+        }
+    }
+
+    fun deleteTextElement(layerId: String, elementId: String) {
+        synchronized(lock) {
+            val doc = document ?: return
+            val beforeLayers = doc.layers
+            val afterLayers = beforeLayers.map { layer ->
+                if (layer.id == layerId) {
+                    layer.copy(textElements = layer.textElements.filterNot { it.id == elementId })
+                } else {
+                    layer
+                }
+            }
+            if (beforeLayers == afterLayers) return
+
+            val command = LayerStructureCommand(
+                description = "Delete Text",
+                beforeLayers = beforeLayers,
+                afterLayers = afterLayers,
+                beforeActiveLayerId = activeLayerId,
+                afterActiveLayerId = activeLayerId,
+                onApplyLayers = { layers, nextActive ->
+                    synchronized(lock) {
+                        layerSurfaces.remove(layerId)?.let { renderBackend.releaseSurface(it.bitmap) }
+                    }
+                    applyLayerStructureChange(layers, nextActive)
+                }
+            )
+            historyManager.execute(command)
+        }
+    }
+
     fun duplicateLayer(layerId: String) {
         synchronized(lock) {
             val doc = document ?: return
@@ -386,6 +459,9 @@ class DrawingEngine(
         val canvas = Canvas(bmp)
         for (stroke in layer.strokes) {
             rasterizer.drawStroke(canvas, stroke)
+        }
+        for (textElement in layer.textElements) {
+            textRenderer.drawText(canvas, textElement)
         }
         layerSurfaces[layer.id] = LayerSurface(layer.id, bmp, canvas)
     }
