@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.graffitistudio.core.data.preferences.WorkspacePreferences
 import com.graffitistudio.core.domain.history.HistoryState
 import com.graffitistudio.core.domain.model.BrushConfig
+import com.graffitistudio.core.domain.model.BrushPreset
+import com.graffitistudio.core.domain.model.BrushPresets
 import com.graffitistudio.core.domain.model.BrushType
 import com.graffitistudio.core.domain.repository.ProjectRepository
 import com.graffitistudio.engine.drawing.DrawingEngine
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 data class WorkspaceUiState(
     val projectName: String = "",
@@ -23,6 +26,10 @@ data class WorkspaceUiState(
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val activeBrush: BrushConfig = BrushConfig(),
+    val lastUsedNonEraserType: BrushType = BrushType.PEN,
+    val isBrushPanelOpen: Boolean = false,
+    val presets: List<BrushPreset> = BrushPresets.builtIn,
+    val activePresetId: String? = null,
     val lastSavedMessage: String? = null
 )
 
@@ -40,26 +47,38 @@ class WorkspaceViewModel(
 
     init {
         loadProject()
+        observeCustomPresets()
+    }
+
+    private fun observeCustomPresets() {
+        viewModelScope.launch {
+            preferences.toolPreferences.collect { prefs ->
+                _uiState.value = _uiState.value.copy(
+                    presets = BrushPresets.builtIn + prefs.customPresets
+                )
+            }
+        }
     }
 
     private fun loadProject() {
         viewModelScope.launch {
             val prefs = preferences.toolPreferences.first()
-            val initialBrush = BrushConfig(
-                type = BrushType.BASIC_BRUSH,
-                colorArgb = prefs.brushColorArgb,
-                sizePx = prefs.brushSizePx
-            )
+            val initialBrush = prefs.toBrushConfig()
             drawingEngine.updateBrush(initialBrush)
 
             val doc = projectRepository.loadDocument(projectId)
             if (doc != null) {
                 drawingEngine.loadDocument(doc) {
-                    _uiState.value = WorkspaceUiState(
+                    _uiState.value = _uiState.value.copy(
                         projectName = doc.name,
                         dimensionsLabel = "${doc.width}×${doc.height}",
                         isLoading = false,
-                        activeBrush = initialBrush
+                        activeBrush = initialBrush,
+                        lastUsedNonEraserType = if (initialBrush.type == BrushType.ERASER) {
+                            BrushType.PEN
+                        } else {
+                            initialBrush.type
+                        }
                     )
                 }
             } else {
@@ -68,31 +87,89 @@ class WorkspaceViewModel(
         }
     }
 
+    fun toggleBrushPanel() {
+        _uiState.value = _uiState.value.copy(
+            isBrushPanelOpen = !_uiState.value.isBrushPanelOpen
+        )
+    }
+
     fun selectBrushType(type: BrushType) {
-        val updated = _uiState.value.activeBrush.copy(type = type)
-        drawingEngine.updateBrush(updated)
-        _uiState.value = _uiState.value.copy(activeBrush = updated)
+        val current = _uiState.value.activeBrush
+        val updated = current.copy(type = type)
+        applyBrushUpdate(updated, presetId = null)
+    }
+
+    fun applyPreset(preset: BrushPreset) {
+        val currentColor = _uiState.value.activeBrush.colorArgb
+        val updated = preset.brush.copy(colorArgb = currentColor)
+        applyBrushUpdate(updated, presetId = preset.id)
     }
 
     fun setBrushSize(sizePx: Float) {
-        val clamped = sizePx.coerceIn(2f, 120f)
-        val updated = _uiState.value.activeBrush.copy(sizePx = clamped)
-        drawingEngine.updateBrush(updated)
-        _uiState.value = _uiState.value.copy(activeBrush = updated)
-        viewModelScope.launch {
-            preferences.saveBrushSize(clamped)
-        }
+        val updated = _uiState.value.activeBrush.copy(sizePx = sizePx.coerceIn(2f, 150f))
+        applyBrushUpdate(updated, presetId = _uiState.value.activePresetId)
+    }
+
+    fun setBrushOpacity(opacity: Float) {
+        val updated = _uiState.value.activeBrush.copy(opacity = opacity.coerceIn(0.05f, 1f))
+        applyBrushUpdate(updated, presetId = null)
+    }
+
+    fun setBrushFlow(flow: Float) {
+        val updated = _uiState.value.activeBrush.copy(flow = flow.coerceIn(0.1f, 1f))
+        applyBrushUpdate(updated, presetId = null)
+    }
+
+    fun setStabilizerLevel(level: Float) {
+        val updated = _uiState.value.activeBrush.copy(stabilizerLevel = level.coerceIn(0f, 0.9f))
+        applyBrushUpdate(updated, presetId = null)
     }
 
     fun setBrushColor(colorArgb: Int) {
-        val updated = _uiState.value.activeBrush.copy(
-            type = BrushType.BASIC_BRUSH,
-            colorArgb = colorArgb
+        val current = _uiState.value.activeBrush
+        val nextType = if (current.type == BrushType.ERASER) {
+            _uiState.value.lastUsedNonEraserType
+        } else {
+            current.type
+        }
+        val updated = current.copy(type = nextType, colorArgb = colorArgb)
+        applyBrushUpdate(updated, presetId = _uiState.value.activePresetId)
+    }
+
+    fun saveCurrentAsPreset(name: String) {
+        val trimmed = name.trim().ifEmpty { "Custom ${_uiState.value.activeBrush.type.displayName}" }
+        val preset = BrushPreset(
+            id = "custom_${UUID.randomUUID()}",
+            name = trimmed,
+            brush = _uiState.value.activeBrush.copy(seed = 0L),
+            isCustom = true
         )
-        drawingEngine.updateBrush(updated)
-        _uiState.value = _uiState.value.copy(activeBrush = updated)
         viewModelScope.launch {
-            preferences.saveBrushColor(colorArgb)
+            preferences.saveCustomPreset(preset)
+            _uiState.value = _uiState.value.copy(activePresetId = preset.id)
+        }
+    }
+
+    fun deleteCustomPreset(presetId: String) {
+        viewModelScope.launch {
+            preferences.deleteCustomPreset(presetId)
+        }
+    }
+
+    private fun applyBrushUpdate(updated: BrushConfig, presetId: String?) {
+        drawingEngine.updateBrush(updated)
+        val nonEraser = if (updated.type != BrushType.ERASER) {
+            updated.type
+        } else {
+            _uiState.value.lastUsedNonEraserType
+        }
+        _uiState.value = _uiState.value.copy(
+            activeBrush = updated,
+            lastUsedNonEraserType = nonEraser,
+            activePresetId = presetId
+        )
+        viewModelScope.launch {
+            preferences.saveBrushConfig(updated)
         }
     }
 

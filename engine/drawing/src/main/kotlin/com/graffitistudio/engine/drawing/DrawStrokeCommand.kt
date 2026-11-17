@@ -7,7 +7,6 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import com.graffitistudio.core.domain.history.HistoryCommand
-import com.graffitistudio.core.domain.model.BrushType
 import com.graffitistudio.core.domain.model.StrokeData
 
 /**
@@ -24,10 +23,7 @@ class DrawStrokeCommand(
     private val onRestoreRegion: (layerId: String, strokeId: String, dirtyRect: Rect, backup: Bitmap?) -> Unit
 ) : HistoryCommand {
 
-    override val description: String = when (stroke.brush.type) {
-        BrushType.BASIC_BRUSH -> "Brush Stroke"
-        BrushType.ERASER -> "Eraser Stroke"
-    }
+    override val description: String = "${stroke.brush.type.displayName} Stroke"
 
     override fun execute() {
         onApplyStroke(stroke)

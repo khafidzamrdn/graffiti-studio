@@ -1,5 +1,6 @@
 package com.graffitistudio.feature.workspace
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -90,9 +92,9 @@ fun WorkspaceScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = uiState.dimensionsLabel,
+                            text = "${uiState.dimensionsLabel} · ${uiState.activeBrush.type.displayName}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = colors.textMuted
+                            color = colors.accentCyan
                         )
                     }
                 }
@@ -125,75 +127,101 @@ fun WorkspaceScreen(
             }
         },
         bottomBar = {
-            UrbanPanel(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(10.dp),
-                containerColor = colors.surfacePrimary
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                AnimatedVisibility(visible = uiState.isBrushPanelOpen) {
+                    BrushStudioPanel(
+                        activeBrush = uiState.activeBrush,
+                        presets = uiState.presets,
+                        activePresetId = uiState.activePresetId,
+                        onSelectBrushType = viewModel::selectBrushType,
+                        onSelectPreset = viewModel::applyPreset,
+                        onSaveCustomPreset = viewModel::saveCurrentAsPreset,
+                        onDeleteCustomPreset = viewModel::deleteCustomPreset,
+                        onOpacityChange = viewModel::setBrushOpacity,
+                        onFlowChange = viewModel::setBrushFlow,
+                        onStabilizerChange = viewModel::setStabilizerLevel
+                    )
+                }
+
+                UrbanPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    containerColor = colors.surfacePrimary
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        UrbanIconButton(
-                            onClick = { viewModel.selectBrushType(BrushType.BASIC_BRUSH) },
-                            selected = uiState.activeBrush.type == BrushType.BASIC_BRUSH
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Brush, contentDescription = "Brush")
+                            UrbanIconButton(
+                                onClick = { viewModel.selectBrushType(uiState.lastUsedNonEraserType) },
+                                selected = uiState.activeBrush.type != BrushType.ERASER
+                            ) {
+                                Icon(Icons.Default.Brush, contentDescription = "Brush")
+                            }
+                            UrbanIconButton(
+                                onClick = { viewModel.selectBrushType(BrushType.ERASER) },
+                                selected = uiState.activeBrush.type == BrushType.ERASER
+                            ) {
+                                Icon(Icons.Default.AutoFixNormal, contentDescription = "Eraser")
+                            }
+                            UrbanIconButton(
+                                onClick = { viewModel.toggleBrushPanel() },
+                                selected = uiState.isBrushPanelOpen
+                            ) {
+                                Icon(Icons.Default.Tune, contentDescription = "Brush Engine & Presets")
+                            }
+
+                            Slider(
+                                value = uiState.activeBrush.sizePx,
+                                onValueChange = { viewModel.setBrushSize(it) },
+                                valueRange = 2f..150f,
+                                modifier = Modifier.weight(1f),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = colors.accentLime,
+                                    activeTrackColor = colors.accentLime,
+                                    inactiveTrackColor = colors.surfaceHighlight
+                                )
+                            )
+
+                            Text(
+                                text = "${uiState.activeBrush.sizePx.roundToInt()}px",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.textSecondary
+                            )
                         }
-                        UrbanIconButton(
-                            onClick = { viewModel.selectBrushType(BrushType.ERASER) },
-                            selected = uiState.activeBrush.type == BrushType.ERASER
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.AutoFixNormal, contentDescription = "Eraser")
-                        }
-
-                        Slider(
-                            value = uiState.activeBrush.sizePx,
-                            onValueChange = { viewModel.setBrushSize(it) },
-                            valueRange = 2f..120f,
-                            modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = colors.accentLime,
-                                activeTrackColor = colors.accentLime,
-                                inactiveTrackColor = colors.surfaceHighlight
-                            )
-                        )
-
-                        Text(
-                            text = "${uiState.activeBrush.sizePx.roundToInt()}px",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.textSecondary
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        UrbanPalette.studioSwatches.forEach { argb ->
-                            val isSelected = uiState.activeBrush.type == BrushType.BASIC_BRUSH &&
-                                uiState.activeBrush.colorArgb == argb
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(argb))
-                                    .border(
-                                        width = if (isSelected) 2.5.dp else 1.dp,
-                                        color = if (isSelected) colors.accentLime else colors.borderSubtle,
-                                        shape = CircleShape
-                                    )
-                                    .clickable { viewModel.setBrushColor(argb) }
-                            )
+                            UrbanPalette.studioSwatches.forEach { argb ->
+                                val isSelected = uiState.activeBrush.type != BrushType.ERASER &&
+                                    uiState.activeBrush.colorArgb == argb
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(argb))
+                                        .border(
+                                            width = if (isSelected) 2.5.dp else 1.dp,
+                                            color = if (isSelected) colors.accentLime else colors.borderSubtle,
+                                            shape = CircleShape
+                                        )
+                                        .clickable { viewModel.setBrushColor(argb) }
+                                )
+                            }
                         }
                     }
                 }

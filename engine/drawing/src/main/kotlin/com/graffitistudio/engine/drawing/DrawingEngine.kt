@@ -51,12 +51,14 @@ class DrawingEngine(
     private var activeBrush: BrushConfig = BrushConfig()
 
     // Active live stroke state
+    private var currentStrokeBrush: BrushConfig = BrushConfig()
     private var currentStrokePoints = mutableListOf<StrokePoint>()
     private var preStrokeBackup: Bitmap? = null
     private var preStrokeLayerBitmap: Bitmap? = null
     private var activeDirtyBounds = RectF()
     private var lastMidX = 0f
     private var lastMidY = 0f
+    private var liveDabIndex = 0
 
     var onFrameInvalidated: (() -> Unit)? = null
 
@@ -130,12 +132,11 @@ class DrawingEngine(
             stabilizer.reset()
             val firstPoint = stabilizer.filter(StrokePoint(x, y, pressure, timestampMs))
             currentStrokePoints = mutableListOf(firstPoint)
+            currentStrokeBrush = activeBrush.copy(seed = System.nanoTime())
             lastMidX = firstPoint.x
             lastMidY = firstPoint.y
+            liveDabIndex = 1
 
-            // Snapshot full layer into a pooled backup only if needed? No — we snapshot on endStroke?
-            // Wait: if we draw live onto surface.bitmap during move, we need the pre-stroke pixels!
-            // Keep a pooled scratch copy of the layer only during the active gesture, then crop to dirtyRect on endStroke.
             val scratch = renderBackend.allocateSurface(doc.width, doc.height)
             RegionRestoreHelper.copyRegion(
                 source = surface.bitmap,
@@ -145,11 +146,10 @@ class DrawingEngine(
             preStrokeBackup = scratch
             preStrokeLayerBitmap = surface.bitmap
 
-            // Draw initial dot
-            rasterizer.drawPoints(surface.canvas, activeBrush, currentStrokePoints)
+            rasterizer.drawLiveDot(surface.canvas, currentStrokeBrush, firstPoint)
             val bounds = rasterizer.computeDirtyBounds(
                 currentStrokePoints,
-                activeBrush.sizePx,
+                currentStrokeBrush,
                 doc.width,
                 doc.height
             )
@@ -174,19 +174,20 @@ class DrawingEngine(
             val newMidX = (prev.x + filtered.x) * 0.5f
             val newMidY = (prev.y + filtered.y) * 0.5f
 
-            rasterizer.drawSegment(
+            liveDabIndex = rasterizer.drawLiveSegment(
                 canvas = surface.canvas,
-                brush = activeBrush,
+                brush = currentStrokeBrush,
                 from = StrokePoint(lastMidX, lastMidY),
                 control = prev,
-                to = StrokePoint(newMidX, newMidY)
+                to = StrokePoint(newMidX, newMidY),
+                startDabIndex = liveDabIndex
             )
             lastMidX = newMidX
             lastMidY = newMidY
 
             val segBounds = rasterizer.computeDirtyBounds(
                 listOf(prev, filtered),
-                activeBrush.sizePx,
+                currentStrokeBrush,
                 doc.width,
                 doc.height
             )
@@ -201,7 +202,7 @@ class DrawingEngine(
         synchronized(lock) {
             val doc = document ?: return
             val layerId = activeLayerId ?: return
-            val surface = layerSurfaces[layerId] ?: return
+            layerSurfaces[layerId] ?: return
             val scratchBackup = preStrokeBackup
             preStrokeBackup = null
             preStrokeLayerBitmap = null
@@ -217,14 +218,12 @@ class DrawingEngine(
             val stroke = StrokeData(
                 id = UUID.randomUUID().toString(),
                 layerId = layerId,
-                brush = activeBrush,
+                brush = currentStrokeBrush,
                 points = finalPoints
             )
 
-            // Append stroke to domain document
             appendStrokeToDocumentLocked(stroke)
 
-            // Crop the pre-stroke backup strictly to the stroke's dirty rect to minimize RAM
             val dirtyRect = Rect(
                 max(0, floor(activeDirtyBounds.left).toInt()),
                 max(0, floor(activeDirtyBounds.top).toInt()),
