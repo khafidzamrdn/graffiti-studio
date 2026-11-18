@@ -24,6 +24,13 @@ interface HistoryCommand {
     fun mergeWith(next: HistoryCommand): HistoryCommand {
         throw UnsupportedOperationException("Command $description does not support merging")
     }
+
+    /**
+     * Releases resources held by this command (for example bitmap backups).
+     *
+     * Called when the command is dropped from history and can no longer be undone or redone.
+     */
+    fun dispose() = Unit
 }
 
 /**
@@ -44,6 +51,10 @@ class CompositeCommand(
 
     override fun redo() {
         commands.forEach { it.redo() }
+    }
+
+    override fun dispose() {
+        commands.forEach { it.dispose() }
     }
 }
 
@@ -115,6 +126,8 @@ class HistoryManager(
 
     fun clear() {
         synchronized(lock) {
+            undoStack.forEach { it.dispose() }
+            redoStack.forEach { it.dispose() }
             undoStack.clear()
             redoStack.clear()
             emitStateLocked()
@@ -122,14 +135,16 @@ class HistoryManager(
     }
 
     private fun pushCommandLocked(command: HistoryCommand) {
+        redoStack.forEach { it.dispose() }
         redoStack.clear()
         val last = undoStack.lastOrNull()
         if (last != null && last.canMergeWith(command)) {
             undoStack.removeLast()
             undoStack.addLast(last.mergeWith(command))
+            last.dispose()
         } else {
             if (undoStack.size >= maxHistorySize) {
-                undoStack.removeFirst()
+                undoStack.removeFirst().dispose()
             }
             undoStack.addLast(command)
         }

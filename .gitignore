@@ -16,3 +16,8 @@
 *.class
 *.log
 .navigation/
+
+# Signing material must never be committed
+*.jks
+*.keystore
+keystore.properties

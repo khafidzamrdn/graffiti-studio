@@ -3,6 +3,8 @@ package com.graffitistudio.core.data.repository
 import com.graffitistudio.core.data.local.ProjectDao
 import com.graffitistudio.core.data.local.ProjectEntity
 import com.graffitistudio.core.domain.model.ArtworkDocument
+import com.graffitistudio.core.domain.model.BackgroundSurfaceType
+import com.graffitistudio.core.domain.model.DocumentBackground
 import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.model.ProjectMetadata
 import com.graffitistudio.core.domain.repository.ProjectRepository
@@ -30,7 +32,9 @@ class ProjectRepositoryImpl(
         name: String,
         width: Int,
         height: Int,
-        backgroundColorArgb: Int
+        backgroundColorArgb: Int,
+        backgroundSurface: BackgroundSurfaceType,
+        initialBackground: DocumentBackground?
     ): ProjectMetadata {
         val now = System.currentTimeMillis()
         val projectId = UUID.randomUUID().toString()
@@ -40,6 +44,8 @@ class ProjectRepositoryImpl(
             width = width,
             height = height,
             backgroundColorArgb = backgroundColorArgb,
+            backgroundSurface = backgroundSurface,
+            background = initialBackground,
             layers = listOf(
                 LayerData(
                     id = UUID.randomUUID().toString(),
@@ -54,6 +60,7 @@ class ProjectRepositoryImpl(
             width = width,
             height = height,
             backgroundColorArgb = backgroundColorArgb,
+            backgroundSurface = backgroundSurface,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
             gspFilePath = gspPath,
@@ -86,6 +93,7 @@ class ProjectRepositoryImpl(
             width = document.width,
             height = document.height,
             backgroundColorArgb = document.backgroundColorArgb,
+            backgroundSurface = document.backgroundSurface.name,
             createdAtEpochMs = existing?.createdAtEpochMs ?: now,
             updatedAtEpochMs = now,
             gspFilePath = gspPath,

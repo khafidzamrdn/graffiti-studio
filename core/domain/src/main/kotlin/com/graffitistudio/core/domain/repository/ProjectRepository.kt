@@ -1,6 +1,8 @@
 package com.graffitistudio.core.domain.repository
 
 import com.graffitistudio.core.domain.model.ArtworkDocument
+import com.graffitistudio.core.domain.model.BackgroundSurfaceType
+import com.graffitistudio.core.domain.model.DocumentBackground
 import com.graffitistudio.core.domain.model.ProjectMetadata
 import kotlinx.coroutines.flow.Flow
 
@@ -13,7 +15,9 @@ interface ProjectRepository {
         name: String,
         width: Int,
         height: Int,
-        backgroundColorArgb: Int
+        backgroundColorArgb: Int,
+        backgroundSurface: BackgroundSurfaceType = BackgroundSurfaceType.SOLID,
+        initialBackground: DocumentBackground? = null
     ): ProjectMetadata
 
     suspend fun loadDocument(projectId: String): ArtworkDocument?

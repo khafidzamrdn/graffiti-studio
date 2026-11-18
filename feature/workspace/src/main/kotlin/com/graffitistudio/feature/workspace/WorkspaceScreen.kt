@@ -11,11 +11,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -27,11 +31,14 @@ import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -75,6 +82,7 @@ fun WorkspaceScreen(
     val layers by viewModel.layersState.collectAsState()
     val activeLayerId by viewModel.activeLayerIdState.collectAsState()
     var surfaceViewRef by remember { mutableStateOf<DrawingSurfaceView?>(null) }
+    var isToolbarMenuOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
@@ -111,6 +119,7 @@ fun WorkspaceScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(colors.surfacePrimary)
+                    .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -155,36 +164,64 @@ fun WorkspaceScreen(
                         Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
                     }
                     UrbanIconButton(
-                        onClick = { viewModel.openTypographyDialog() }
-                    ) {
-                        Icon(Icons.Default.Title, contentDescription = "Graffiti Typography")
-                    }
-                    UrbanIconButton(
-                        onClick = { viewModel.openEffectsDialog() }
-                    ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = "Effects Studio")
-                    }
-                    UrbanIconButton(
                         onClick = { viewModel.toggleLayerPanel() },
                         selected = uiState.isLayerPanelOpen
                     ) {
                         Icon(Icons.Default.Layers, contentDescription = "Layers")
                     }
-                    UrbanIconButton(
-                        onClick = { surfaceViewRef?.resetViewport() }
-                    ) {
-                        Icon(Icons.Default.CenterFocusStrong, contentDescription = "Fit Canvas")
-                    }
-                    UrbanIconButton(
-                        onClick = { viewModel.saveProject() },
-                        enabled = !uiState.isSaving
-                    ) {
-                        Icon(Icons.Default.Save, contentDescription = "Save Project")
-                    }
-                    UrbanIconButton(
-                        onClick = { viewModel.openExportDialog() }
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = "Export Artwork")
+
+                    Box {
+                        UrbanIconButton(onClick = { isToolbarMenuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More actions")
+                        }
+                        DropdownMenu(
+                            expanded = isToolbarMenuOpen,
+                            onDismissRequest = { isToolbarMenuOpen = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Graffiti Typography") },
+                                leadingIcon = { Icon(Icons.Default.Title, contentDescription = null) },
+                                onClick = {
+                                    isToolbarMenuOpen = false
+                                    viewModel.openTypographyDialog()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Effects Studio") },
+                                leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                                onClick = {
+                                    isToolbarMenuOpen = false
+                                    viewModel.openEffectsDialog()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Fit Canvas") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.CenterFocusStrong, contentDescription = null)
+                                },
+                                onClick = {
+                                    isToolbarMenuOpen = false
+                                    surfaceViewRef?.resetViewport()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Save Project") },
+                                leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
+                                enabled = !uiState.isSaving,
+                                onClick = {
+                                    isToolbarMenuOpen = false
+                                    viewModel.saveProject()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export Artwork") },
+                                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+                                onClick = {
+                                    isToolbarMenuOpen = false
+                                    viewModel.openExportDialog()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -193,6 +230,7 @@ fun WorkspaceScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {

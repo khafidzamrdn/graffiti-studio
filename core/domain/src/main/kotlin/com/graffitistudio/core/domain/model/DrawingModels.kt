@@ -196,12 +196,41 @@ data class LayerData(
 )
 
 @Serializable
+enum class BackgroundSurfaceType(val displayName: String) {
+    SOLID("Solid Color"),
+    BRICK_WALL("Brick Wall"),
+    CONCRETE_WALL("Raw Concrete"),
+    METAL_SHUTTER("Metal Shutter"),
+    SUBWAY_TILE("Subway Tile"),
+    BLACKBOOK_PAPER("Sketch Paper")
+}
+
+data class BackgroundPreset(
+    val surface: BackgroundSurfaceType,
+    val defaultColorArgb: Int,
+    val subtitle: String
+)
+
+object BackgroundPresets {
+    val builtIn: List<BackgroundPreset> = listOf(
+        BackgroundPreset(BackgroundSurfaceType.SOLID, 0xFF14161C.toInt(), "Clean dark studio"),
+        BackgroundPreset(BackgroundSurfaceType.BRICK_WALL, 0xFF5A2E26.toInt(), "Weathered street brick"),
+        BackgroundPreset(BackgroundSurfaceType.CONCRETE_WALL, 0xFF3A3E47.toInt(), "Poured urban concrete"),
+        BackgroundPreset(BackgroundSurfaceType.METAL_SHUTTER, 0xFF2B323D.toInt(), "Corrugated shop roll"),
+        BackgroundPreset(BackgroundSurfaceType.SUBWAY_TILE, 0xFFD9DDD8.toInt(), "Metro station tile"),
+        BackgroundPreset(BackgroundSurfaceType.BLACKBOOK_PAPER, 0xFFEAE6DC.toInt(), "Heavy sketch grain")
+    )
+}
+
+@Serializable
 data class ArtworkDocument(
     val projectId: String,
     val name: String,
     val width: Int,
     val height: Int,
     val backgroundColorArgb: Int = 0xFF14161C.toInt(),
+    val backgroundSurface: BackgroundSurfaceType = BackgroundSurfaceType.SOLID,
+    val background: DocumentBackground? = null,
     val layers: List<LayerData> = emptyList()
 )
 
@@ -211,6 +240,7 @@ data class ProjectMetadata(
     val width: Int,
     val height: Int,
     val backgroundColorArgb: Int,
+    val backgroundSurface: BackgroundSurfaceType = BackgroundSurfaceType.SOLID,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
     val gspFilePath: String,

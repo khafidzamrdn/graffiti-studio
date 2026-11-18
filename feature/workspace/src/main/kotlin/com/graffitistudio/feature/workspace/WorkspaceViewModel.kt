@@ -75,7 +75,7 @@ class WorkspaceViewModel(
             while (true) {
                 delay(20_000L)
                 val doc = drawingEngine.snapshotDocument() ?: continue
-                projectRepository.autosaveDocument(doc)
+                runCatching { projectRepository.autosaveDocument(doc) }
             }
         }
     }
@@ -332,21 +332,32 @@ class WorkspaceViewModel(
     }
 
     fun saveProject(onSaved: (() -> Unit)? = null) {
+        if (_uiState.value.isSaving) return
         val doc = drawingEngine.snapshotDocument() ?: run {
             onSaved?.invoke()
             return
         }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true)
-            val thumbBytes = withContext(Dispatchers.Default) {
-                drawingEngine.renderThumbnailPngBytes()
+            val result = runCatching {
+                val thumbBytes = withContext(Dispatchers.Default) {
+                    drawingEngine.renderThumbnailPngBytes()
+                }
+                projectRepository.saveDocument(doc, thumbBytes)
             }
-            projectRepository.saveDocument(doc, thumbBytes)
-            _uiState.value = _uiState.value.copy(
-                isSaving = false,
-                lastSavedMessage = "Saved"
-            )
-            onSaved?.invoke()
+            if (result.isSuccess) {
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    lastSavedMessage = "Saved"
+                )
+                onSaved?.invoke()
+            } else {
+                val error = result.exceptionOrNull()
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    exportStatusMessage = "Save failed: ${error?.message ?: "unknown error"}"
+                )
+            }
         }
     }
 

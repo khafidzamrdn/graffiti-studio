@@ -7,9 +7,11 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import com.graffitistudio.core.domain.history.HistoryCommand
 import com.graffitistudio.core.domain.history.HistoryManager
 import com.graffitistudio.core.domain.history.HistoryState
 import com.graffitistudio.core.domain.model.ArtworkDocument
+import com.graffitistudio.core.domain.model.BackgroundSurfaceType
 import com.graffitistudio.core.domain.model.BlendMode
 import com.graffitistudio.core.domain.model.BrushConfig
 import com.graffitistudio.core.domain.model.ExportConfig
@@ -18,6 +20,7 @@ import com.graffitistudio.core.domain.model.LayerData
 import com.graffitistudio.core.domain.model.LayerEffect
 import com.graffitistudio.core.domain.model.StrokeData
 import com.graffitistudio.core.domain.model.StrokePoint
+import com.graffitistudio.engine.rendering.BackgroundSurfaceRenderer
 import com.graffitistudio.engine.rendering.RenderBackend
 import com.graffitistudio.engine.rendering.RenderLayer
 import com.graffitistudio.engine.rendering.SoftwareCanvasRenderBackend
@@ -51,6 +54,9 @@ class DrawingEngine(
     private val _activeLayerIdState = MutableStateFlow<String?>(null)
     val activeLayerIdState: StateFlow<String?> = _activeLayerIdState.asStateFlow()
 
+    private val _backgroundState = MutableStateFlow(BackgroundSurfaceType.SOLID to 0xFF14161C.toInt())
+    val backgroundState: StateFlow<Pair<BackgroundSurfaceType, Int>> = _backgroundState.asStateFlow()
+
     private val lock = Any()
     private val rasterizer = BrushRasterizer()
     private val textRenderer = GraffitiTextRenderer()
@@ -60,6 +66,7 @@ class DrawingEngine(
 
     private var document: ArtworkDocument? = null
     private var tileGrid: TileGrid? = null
+    private var backgroundBitmap: Bitmap? = null
     private var compositeBitmap: Bitmap? = null
     private var compositeCanvas: Canvas? = null
 
@@ -430,17 +437,27 @@ class DrawingEngine(
             val mergedStrokes = bottomLayer.strokes + topLayer.strokes.map {
                 it.copy(layerId = bottomLayer.id)
             }
-            val mergedLayer = bottomLayer.copy(strokes = mergedStrokes)
+            val mergedText = bottomLayer.textElements + topLayer.textElements.map {
+                it.copy(layerId = bottomLayer.id)
+            }
+            val mergedLayer = bottomLayer.copy(
+                strokes = mergedStrokes,
+                textElements = mergedText
+            )
 
-            // Fast composite onto bottom surface if both are normal opacity/visibility
-            val topSurface = layerSurfaces[topLayer.id]
             val bottomSurface = layerSurfaces[bottomLayer.id]
-            if (topSurface != null && bottomSurface != null && topLayer.isVisible && topLayer.opacity > 0f) {
-                val mergePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    alpha = (topLayer.opacity.coerceIn(0f, 1f) * 255f).toInt()
-                    xfermode = topLayer.blendMode.toPorterDuff()
+            val hasTopSurface = layerSurfaces[topLayer.id] != null
+            val canBakePixels = bottomSurface != null && hasTopSurface &&
+                topLayer.isVisible && topLayer.opacity > 0f
+
+            // Merge bakes pixels that cannot be reconstructed from metadata, so keep a
+            // full pre-merge copy of the bottom layer to restore on undo.
+            val bottomBackup = if (bottomSurface != null) {
+                renderBackend.allocateSurface(doc.width, doc.height).also { backup ->
+                    Canvas(backup).drawBitmap(bottomSurface.bitmap, 0f, 0f, null)
                 }
-                bottomSurface.canvas.drawBitmap(topSurface.bitmap, 0f, 0f, mergePaint)
+            } else {
+                null
             }
 
             val afterLayers = doc.layers.toMutableList().apply {
@@ -448,13 +465,39 @@ class DrawingEngine(
                 removeAt(index)
             }
 
-            val command = LayerStructureCommand(
+            val command = MergeLayersCommand(
                 description = "Merge Layer Down",
                 beforeLayers = doc.layers,
                 afterLayers = afterLayers,
                 beforeActiveLayerId = activeLayerId,
                 afterActiveLayerId = bottomLayer.id,
-                onApplyLayers = ::applyLayerStructureChange
+                onExecuteMerge = {
+                    synchronized(lock) {
+                        val top = layerSurfaces[topLayer.id]
+                        val bottom = layerSurfaces[bottomLayer.id]
+                        if (canBakePixels && top != null && bottom != null) {
+                            val mergePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                alpha = (topLayer.opacity.coerceIn(0f, 1f) * 255f).toInt()
+                                xfermode = topLayer.blendMode.toPorterDuff()
+                            }
+                            bottom.canvas.drawBitmap(top.bitmap, 0f, 0f, mergePaint)
+                        }
+                    }
+                },
+                onUndoMerge = {
+                    synchronized(lock) {
+                        val bottom = layerSurfaces[bottomLayer.id]
+                        if (bottom != null && bottomBackup != null && !bottomBackup.isRecycled) {
+                            RegionRestoreHelper.copyRegion(
+                                source = bottomBackup,
+                                rect = Rect(0, 0, doc.width, doc.height),
+                                target = bottom.bitmap
+                            )
+                        }
+                    }
+                },
+                onApplyLayers = ::applyLayerStructureChange,
+                onDispose = { bottomBackup?.let(renderBackend::releaseSurface) }
             )
             historyManager.execute(command)
         }
@@ -795,6 +838,7 @@ class DrawingEngine(
 
     fun release() {
         synchronized(lock) {
+            historyManager.clear()
             releaseSurfacesLocked()
         }
         backgroundExecutor.shutdown()

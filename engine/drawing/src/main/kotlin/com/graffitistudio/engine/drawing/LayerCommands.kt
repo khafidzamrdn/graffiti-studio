@@ -68,6 +68,39 @@ internal class UpdateLayerMetadataCommand(
     }
 }
 
+/**
+ * Command for merging the layer above into the layer below.
+ *
+ * Merge bakes the top layer's pixels (opacity, blend mode, effects, text) into the
+ * bottom layer bitmap, so it cannot be reconstructed from layer metadata alone.
+ * The pre-merge bottom bitmap is therefore captured as a backup and restored on undo,
+ * while redo re-applies the pixel composite.
+ */
+internal class MergeLayersCommand(
+    override val description: String,
+    private val beforeLayers: List<LayerData>,
+    private val afterLayers: List<LayerData>,
+    private val beforeActiveLayerId: String?,
+    private val afterActiveLayerId: String?,
+    private val onExecuteMerge: () -> Unit,
+    private val onUndoMerge: () -> Unit,
+    private val onApplyLayers: (layers: List<LayerData>, activeLayerId: String?) -> Unit,
+    private val onDispose: () -> Unit
+) : HistoryCommand {
+
+    override fun execute() {
+        onExecuteMerge()
+        onApplyLayers(afterLayers, afterActiveLayerId)
+    }
+
+    override fun undo() {
+        onUndoMerge()
+        onApplyLayers(beforeLayers, beforeActiveLayerId)
+    }
+
+    override fun dispose() = onDispose()
+}
+
 internal fun ArtworkDocument.replaceLayer(updated: LayerData): ArtworkDocument =
     copy(layers = layers.map { if (it.id == updated.id) updated else it })
 

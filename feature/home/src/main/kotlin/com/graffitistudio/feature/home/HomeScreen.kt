@@ -30,18 +30,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +56,8 @@ import com.graffitistudio.core.designsystem.component.UrbanPanel
 import com.graffitistudio.core.designsystem.component.UrbanPrimaryButton
 import com.graffitistudio.core.designsystem.theme.LocalUrbanColors
 import com.graffitistudio.core.domain.model.ProjectMetadata
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -61,10 +68,20 @@ fun HomeScreen(
     val colors = LocalUrbanColors.current
     val projects by viewModel.projects.collectAsState()
     val showCreateDialog by viewModel.showCreateDialog.collectAsState()
+    val message by viewModel.message.collectAsState()
     var renamingProject by remember { mutableStateOf<ProjectMetadata?>(null) }
+    var deletingProject by remember { mutableStateOf<ProjectMetadata?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(message) {
+        val msg = message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(msg)
+        viewModel.clearMessage()
+    }
 
     Scaffold(
-        containerColor = colors.backgroundDeep
+        containerColor = colors.backgroundDeep,
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -146,7 +163,7 @@ fun HomeScreen(
                             project = project,
                             onClick = { onOpenProject(project.id) },
                             onRename = { renamingProject = project },
-                            onDelete = { viewModel.deleteProject(project.id) }
+                            onDelete = { deletingProject = project }
                         )
                     }
                 }
@@ -172,6 +189,59 @@ fun HomeScreen(
                 renamingProject = null
             }
         )
+    }
+
+    deletingProject?.let { target ->
+        DeleteProjectDialog(
+            projectName = target.name,
+            onDismiss = { deletingProject = null },
+            onConfirm = {
+                viewModel.deleteProject(target.id)
+                deletingProject = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun DeleteProjectDialog(
+    projectName: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val colors = LocalUrbanColors.current
+
+    Dialog(onDismissRequest = onDismiss) {
+        UrbanPanel {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "DELETE PROJECT",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.textPrimary
+                )
+                Text(
+                    text = "\"$projectName\" and its thumbnail will be permanently deleted.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = colors.textSecondary)
+                    }
+                    TextButton(onClick = onConfirm) {
+                        Text("Delete", color = colors.accentCoral)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -233,10 +303,16 @@ private fun ProjectCard(
     onDelete: () -> Unit
 ) {
     val colors = LocalUrbanColors.current
-    val thumbnailBitmap = remember(project.thumbnailPath, project.updatedAtEpochMs) {
-        project.thumbnailPath?.let { path ->
-            val file = File(path)
-            if (file.exists()) BitmapFactory.decodeFile(path)?.asImageBitmap() else null
+    val thumbnailBitmap by produceState<ImageBitmap?>(
+        initialValue = null,
+        project.thumbnailPath,
+        project.updatedAtEpochMs
+    ) {
+        value = project.thumbnailPath?.let { path ->
+            withContext(Dispatchers.IO) {
+                val file = File(path)
+                if (file.exists()) BitmapFactory.decodeFile(path)?.asImageBitmap() else null
+            }
         }
     }
 
@@ -254,9 +330,9 @@ private fun ProjectCard(
                     .background(Color(project.backgroundColorArgb)),
                 contentAlignment = Alignment.Center
             ) {
-                if (thumbnailBitmap != null) {
+                thumbnailBitmap?.let { bitmap ->
                     Image(
-                        bitmap = thumbnailBitmap,
+                        bitmap = bitmap,
                         contentDescription = project.name,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()

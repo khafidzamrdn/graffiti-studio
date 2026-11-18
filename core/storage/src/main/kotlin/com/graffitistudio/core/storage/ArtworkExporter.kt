@@ -54,13 +54,20 @@ class ArtworkExporter(private val context: Context) {
                 val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                     ?: error("Failed to create MediaStore entry")
 
-                resolver.openOutputStream(uri)?.use { stream ->
-                    bitmap.compress(compressFormat, quality, stream)
-                } ?: error("Failed to open output stream")
+                try {
+                    resolver.openOutputStream(uri)?.use { stream ->
+                        bitmap.compress(compressFormat, quality, stream)
+                    } ?: error("Failed to open output stream")
 
-                values.clear()
-                values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                } catch (error: Throwable) {
+                    // Remove the pending MediaStore row so a failed export does not
+                    // leave an invisible orphan entry behind.
+                    runCatching { resolver.delete(uri, null, null) }
+                    throw error
+                }
 
                 ExportResult(
                     displayName = fileName,

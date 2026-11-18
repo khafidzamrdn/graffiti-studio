@@ -1,8 +1,22 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Release signing is configured outside the repository: either through environment
+// variables (CI / local release build) or an untracked keystore.properties file.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingValue(envName: String, propertyName: String): String? =
+    System.getenv(envName) ?: keystoreProperties.getProperty(propertyName)
+
+val releaseStorePath = signingValue("GRAFFITI_KEYSTORE_FILE", "storeFile")
 
 android {
     namespace = "com.graffitistudio"
@@ -12,8 +26,19 @@ android {
         applicationId = "com.graffitistudio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-milestone1"
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    signingConfigs {
+        if (releaseStorePath != null) {
+            create("release") {
+                storeFile = file(releaseStorePath)
+                storePassword = signingValue("GRAFFITI_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("GRAFFITI_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("GRAFFITI_KEY_PASSWORD", "keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -23,6 +48,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 

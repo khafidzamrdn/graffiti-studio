@@ -28,6 +28,16 @@ class HomeViewModel(
     private val _showCreateDialog = MutableStateFlow(false)
     val showCreateDialog: StateFlow<Boolean> = _showCreateDialog.asStateFlow()
 
+    private val _isCreating = MutableStateFlow(false)
+    val isCreating: StateFlow<Boolean> = _isCreating.asStateFlow()
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun clearMessage() {
+        _message.value = null
+    }
+
     fun openCreateDialog() {
         _showCreateDialog.value = true
     }
@@ -42,16 +52,24 @@ class HomeViewModel(
         backgroundColorArgb: Int,
         onCreated: (String) -> Unit
     ) {
+        if (_isCreating.value) return
         val trimmedName = name.trim().ifEmpty { "Untitled Wall" }
         viewModelScope.launch {
-            val created = projectRepository.createProject(
-                name = trimmedName,
-                width = preset.width,
-                height = preset.height,
-                backgroundColorArgb = backgroundColorArgb
-            )
-            _showCreateDialog.value = false
-            onCreated(created.id)
+            _isCreating.value = true
+            runCatching {
+                projectRepository.createProject(
+                    name = trimmedName,
+                    width = preset.width,
+                    height = preset.height,
+                    backgroundColorArgb = backgroundColorArgb
+                )
+            }.onSuccess { created ->
+                _showCreateDialog.value = false
+                onCreated(created.id)
+            }.onFailure { error ->
+                _message.value = "Could not create project: ${error.message ?: "unknown error"}"
+            }
+            _isCreating.value = false
         }
     }
 
@@ -59,13 +77,21 @@ class HomeViewModel(
         val trimmed = newName.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launch {
-            projectRepository.renameProject(projectId, trimmed)
+            runCatching {
+                projectRepository.renameProject(projectId, trimmed)
+            }.onFailure { error ->
+                _message.value = "Rename failed: ${error.message ?: "unknown error"}"
+            }
         }
     }
 
     fun deleteProject(projectId: String) {
         viewModelScope.launch {
-            projectRepository.deleteProject(projectId)
+            runCatching {
+                projectRepository.deleteProject(projectId)
+            }.onFailure { error ->
+                _message.value = "Delete failed: ${error.message ?: "unknown error"}"
+            }
         }
     }
 

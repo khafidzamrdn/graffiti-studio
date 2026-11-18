@@ -24,7 +24,8 @@ interface RenderBackend {
         target: Canvas,
         backgroundColorArgb: Int,
         layers: List<RenderLayer>,
-        dirtyRect: Rect? = null
+        dirtyRect: Rect? = null,
+        backgroundBitmap: Bitmap? = null
     )
 
     fun trimMemory(level: Int)
@@ -56,13 +57,18 @@ class SoftwareCanvasRenderBackend(
         target: Canvas,
         backgroundColorArgb: Int,
         layers: List<RenderLayer>,
-        dirtyRect: Rect?
+        dirtyRect: Rect?,
+        backgroundBitmap: Bitmap?
     ) {
         val saveCount = target.save()
         if (dirtyRect != null) {
             target.clipRect(dirtyRect)
         }
-        target.drawColor(backgroundColorArgb)
+        if (backgroundBitmap != null && !backgroundBitmap.isRecycled) {
+            target.drawBitmap(backgroundBitmap, 0f, 0f, null)
+        } else {
+            target.drawColor(backgroundColorArgb)
+        }
 
         for (layer in layers) {
             if (!layer.isVisible || layer.opacity <= 0f || layer.bitmap.isRecycled) continue
