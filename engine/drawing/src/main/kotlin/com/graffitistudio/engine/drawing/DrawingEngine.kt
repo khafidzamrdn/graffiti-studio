@@ -7,6 +7,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import android.content.Context
 import com.graffitistudio.core.domain.history.HistoryCommand
 import com.graffitistudio.core.domain.history.HistoryManager
 import com.graffitistudio.core.domain.history.HistoryState
@@ -73,6 +74,14 @@ class DrawingEngine(
     private val layerSurfaces = LinkedHashMap<String, LayerSurface>()
     private var activeLayerId: String? = null
     private var activeBrush: BrushConfig = BrushConfig()
+
+    /** Android context, diperlukan untuk memuat bundled font dari res/font/. */
+    private var context: Context? = null
+
+    fun setContext(context: Context) {
+        this.context = context
+        textRenderer.setContext(context)
+    }
 
     // Active live stroke state
     private var currentStrokeBrush: BrushConfig = BrushConfig()

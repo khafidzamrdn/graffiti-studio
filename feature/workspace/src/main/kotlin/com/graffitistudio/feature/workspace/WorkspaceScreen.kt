@@ -369,6 +369,7 @@ fun WorkspaceScreen(
                     DrawingSurfaceView(context).also { view ->
                         surfaceViewRef = view
                         view.attachEngine(viewModel.drawingEngine)
+                        viewModel.drawingEngine.setContext(context)
                     }
                 },
                 modifier = Modifier.fillMaxSize()

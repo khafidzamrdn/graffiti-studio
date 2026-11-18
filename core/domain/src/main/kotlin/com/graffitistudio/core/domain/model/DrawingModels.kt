@@ -150,6 +150,7 @@ data class GraffitiTextElement(
     val x: Float,
     val y: Float,
     val fontSizePx: Float = 140f,
+    val fontFamily: String = "sans-serif",
     val letterSpacing: Float = 0.06f,
     val style: GraffitiTextStyle = GraffitiTextStyle.BUBBLE,
     val primaryColorArgb: Int = 0xFFB8FF3B.toInt(),

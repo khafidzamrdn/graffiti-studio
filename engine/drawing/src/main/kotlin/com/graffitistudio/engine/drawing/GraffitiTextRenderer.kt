@@ -1,11 +1,14 @@
 package com.graffitistudio.engine.drawing
 
+import android.content.Context
+import android.content.res.Resources
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.Typeface
+import androidx.core.content.res.ResourcesCompat
 import com.graffitistudio.core.domain.model.GraffitiTextElement
 import com.graffitistudio.core.domain.model.GraffitiTextStyle
 import kotlin.math.max
@@ -13,9 +16,39 @@ import kotlin.math.roundToInt
 
 /**
  * Renders graffiti typography elements onto an Android [Canvas] with support for
- * bubble lettering, outlines, drop shadows, 3D extrusion, gradient fills, and chrome reflection.
+ * bubble lettering, outlines, drop shadows, 3D extrusion, gradient fills, chrome reflection,
+ * custom bundled fonts, and adjustable letter spacing.
  */
 class GraffitiTextRenderer {
+
+    private var context: Context? = null
+    private val typefaceCache = mutableMapOf<String, Typeface>()
+
+    /** Call once with a valid [Context] so bundled fonts under res/font/ can be loaded. */
+    fun setContext(context: Context) {
+        this.context = context
+    }
+
+    private fun typefaceFor(family: String, style: Int): Typeface {
+        return typefaceCache.getOrPut(family) {
+            when (family) {
+                "sans-serif" -> Typeface.create(Typeface.SANS_SERIF, style)
+                "serif" -> Typeface.create(Typeface.SERIF, style)
+                "monospace" -> Typeface.create(Typeface.MONOSPACE, style)
+                else -> {
+                    // Resolve bundled font under res/font/ by resource name
+                    val resId = context?.let { c ->
+                        c.resources.getIdentifier(family, "font", c.packageName)
+                    } ?: 0
+                    if (resId != 0) {
+                        ResourcesCompat.getFont(context!!, resId) ?: Typeface.create(Typeface.SANS_SERIF, style)
+                    } else {
+                        Typeface.create(Typeface.SANS_SERIF, style)
+                    }
+                }
+            }
+        }
+    }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -34,12 +67,14 @@ class GraffitiTextRenderer {
     fun drawText(canvas: Canvas, element: GraffitiTextElement) {
         if (element.text.isBlank()) return
 
-        val typeface = when (element.style) {
-            GraffitiTextStyle.BUBBLE -> Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        val baseStyle = when (element.style) {
+            GraffitiTextStyle.BUBBLE -> Typeface.BOLD
             GraffitiTextStyle.CHROME,
             GraffitiTextStyle.BLOCK_3D,
-            GraffitiTextStyle.STANDARD -> Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
+            GraffitiTextStyle.STANDARD -> Typeface.BOLD_ITALIC
         }
+
+        val typeface = typefaceFor(element.fontFamily, baseStyle)
 
         fillPaint.typeface = typeface
         strokePaint.typeface = typeface

@@ -65,6 +65,54 @@ fun TypographyDialog(
 ) {
     val colors = LocalUrbanColors.current
 
+    data class FontFamilyItem(val resourceName: String, val displayName: String)
+
+    // Font families bundled from device (.ttf / .otf) under res/font/
+    val availableFonts = remember {
+        listOf(
+            FontFamilyItem("sans-serif", "System Sans"),
+            FontFamilyItem("serif", "System Serif"),
+            FontFamilyItem("monospace", "System Monospace"),
+            FontFamilyItem("cairo_regular", "Cairo Regular"),
+            FontFamilyItem("cairo_bold", "Cairo Bold"),
+            FontFamilyItem("cairo_black", "Cairo Black"),
+            FontFamilyItem("cairo_light", "Cairo Light"),
+            FontFamilyItem("cairo_medium", "Cairo Medium"),
+            FontFamilyItem("cairo_semibold", "Cairo SemiBold"),
+            FontFamilyItem("cairo_extrabold", "Cairo ExtraBold"),
+            FontFamilyItem("cairo_extralight", "Cairo ExtraLight"),
+            FontFamilyItem("poppins_regular", "Poppins Regular"),
+            FontFamilyItem("poppins_bold", "Poppins Bold"),
+            FontFamilyItem("poppins_black", "Poppins Black"),
+            FontFamilyItem("poppins_light", "Poppins Light"),
+            FontFamilyItem("poppins_medium", "Poppins Medium"),
+            FontFamilyItem("poppins_semibold", "Poppins SemiBold"),
+            FontFamilyItem("poppins_extrabold", "Poppins ExtraBold"),
+            FontFamilyItem("poppins_extralight", "Poppins ExtraLight"),
+            FontFamilyItem("poppins_thin", "Poppins Thin"),
+            FontFamilyItem("poppins_italic", "Poppins Italic"),
+            FontFamilyItem("poppins_bolditalic", "Poppins BoldItalic"),
+            FontFamilyItem("poppins_blackitalic", "Poppins BlackItalic"),
+            FontFamilyItem("poppins_lightitalic", "Poppins LightItalic"),
+            FontFamilyItem("poppins_mediumitalic", "Poppins MediumItalic"),
+            FontFamilyItem("poppins_semibolditalic", "Poppins SemiBoldItalic"),
+            FontFamilyItem("poppins_extrabolditalic", "Poppins ExtraBoldItalic"),
+            FontFamilyItem("poppins_extralightitalic", "Poppins ExtraLightItalic"),
+            FontFamilyItem("poppins_thinitalic", "Poppins ThinItalic"),
+            FontFamilyItem("docallisme_on_street", "Docallisme On Street"),
+            FontFamilyItem("docallismeonstreet", "Docallisme On Street (OTF)"),
+            FontFamilyItem("click_cheese", "Click Cheese"),
+            FontFamilyItem("graffiti", "Graffiti"),
+            FontFamilyItem("graffitixenoa_regular", "Graffiti Xenoa Regular"),
+            FontFamilyItem("graffitixenoa_shadow", "Graffiti Xenoa Shadow"),
+            FontFamilyItem("simpsonfont_demo", "Simpsonfont Demo"),
+            FontFamilyItem("inter_regular", "Inter Regular"),
+            FontFamilyItem("inter_bold", "Inter Bold"),
+            FontFamilyItem("inter_medium", "Inter Medium"),
+            FontFamilyItem("inter_semi_bold", "Inter SemiBold")
+        )
+    }
+
     var editingId by remember { mutableStateOf<String?>(null) }
     var text by remember { mutableStateOf("STREET") }
     var style by remember { mutableStateOf(GraffitiTextStyle.BUBBLE) }
@@ -77,12 +125,16 @@ fun TypographyDialog(
     var secondaryColor by remember { mutableIntStateOf(UrbanPalette.studioSwatches[1]) }
     var posX by remember { mutableFloatStateOf(docWidth * 0.5f) }
     var posY by remember { mutableFloatStateOf(docHeight * 0.55f) }
+    var fontFamily by remember { mutableStateOf("sans-serif") }
+    var letterSpacing by remember { mutableFloatStateOf(0.06f) }
 
     fun loadElement(el: GraffitiTextElement) {
         editingId = el.id
         text = el.text
         style = el.style
         fontSizePx = el.fontSizePx
+        fontFamily = el.fontFamily
+        letterSpacing = el.letterSpacing
         outlineWidthPx = el.outlineWidthPx
         extrusionDepthPx = el.extrusionDepthPx
         shadowEnabled = el.shadowEnabled
@@ -238,6 +290,49 @@ fun TypographyDialog(
                     posY = it
                 }
 
+                // --- Font family ---
+                Text(
+                    text = "FONT FAMILY",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.textSecondary
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    availableFonts.forEach { family ->
+                        val selected = fontFamily == family.resourceName
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (selected) colors.accentLime else colors.surfaceElevated,
+                            border = BorderStroke(
+                                1.dp,
+                                if (selected) colors.accentLime else colors.borderSubtle
+                            ),
+                            modifier = Modifier.clickable { fontFamily = family.resourceName }
+                        ) {
+                            Text(
+                                text = family.displayName,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) colors.onAccent else colors.textPrimary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                // --- Letter spacing (tracking) ---
+                TypographySlider(
+                    "Letter spacing",
+                    letterSpacing,
+                    -0.2f..0.5f,
+                    "${if (letterSpacing >= 0) "+" else ""}${letterSpacing.toString().take(3)}em"
+                ) {
+                    letterSpacing = it
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -298,6 +393,8 @@ fun TypographyDialog(
                                     x = posX,
                                     y = posY,
                                     fontSizePx = fontSizePx,
+                                    fontFamily = fontFamily,
+                                    letterSpacing = letterSpacing,
                                     style = style,
                                     primaryColorArgb = primaryColor,
                                     secondaryColorArgb = secondaryColor,
