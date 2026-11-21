@@ -22,6 +22,26 @@ class HistoryManagerTest {
         }
     }
 
+    private class DisposableCommand(
+        private val target: MutableList<String>,
+        private val value: String,
+        private val disposed: MutableList<String>
+    ) : HistoryCommand {
+        override val description: String = "Disposable $value"
+
+        override fun execute() {
+            target.add(value)
+        }
+
+        override fun undo() {
+            target.removeLastOrNull()
+        }
+
+        override fun dispose() {
+            disposed.add(value)
+        }
+    }
+
     @Test
     fun `execute undo and redo update target and state`() {
         val items = mutableListOf<String>()
@@ -92,6 +112,68 @@ class HistoryManagerTest {
         assertTrue(manager.undo())
         assertFalse(manager.undo())
         assertEquals(listOf("1"), items)
+    }
+
+    @Test
+    fun `evicted commands are disposed`() {
+        val items = mutableListOf<String>()
+        val disposed = mutableListOf<String>()
+        val manager = HistoryManager(maxHistorySize = 2)
+
+        manager.execute(DisposableCommand(items, "1", disposed))
+        manager.execute(DisposableCommand(items, "2", disposed))
+        manager.execute(DisposableCommand(items, "3", disposed))
+
+        assertEquals(listOf("1"), disposed)
+    }
+
+    @Test
+    fun `clear disposes commands from both stacks`() {
+        val items = mutableListOf<String>()
+        val disposed = mutableListOf<String>()
+        val manager = HistoryManager()
+
+        manager.execute(DisposableCommand(items, "1", disposed))
+        manager.execute(DisposableCommand(items, "2", disposed))
+        manager.undo()
+
+        manager.clear()
+
+        assertEquals(setOf("1", "2"), disposed.toSet())
+    }
+
+    @Test
+    fun `new command disposes the redo stack`() {
+        val items = mutableListOf<String>()
+        val disposed = mutableListOf<String>()
+        val manager = HistoryManager()
+
+        manager.execute(DisposableCommand(items, "1", disposed))
+        manager.execute(DisposableCommand(items, "2", disposed))
+        manager.undo()
+        manager.execute(DisposableCommand(items, "3", disposed))
+
+        assertEquals(listOf("2"), disposed)
+    }
+
+    @Test
+    fun `composite dispose cascades to children`() {
+        val items = mutableListOf<String>()
+        val disposed = mutableListOf<String>()
+        val manager = HistoryManager()
+
+        manager.execute(
+            CompositeCommand(
+                description = "Batch",
+                commands = listOf(
+                    DisposableCommand(items, "first", disposed),
+                    DisposableCommand(items, "second", disposed)
+                )
+            )
+        )
+        manager.clear()
+
+        assertEquals(listOf("first", "second"), disposed)
     }
 
     @Test
