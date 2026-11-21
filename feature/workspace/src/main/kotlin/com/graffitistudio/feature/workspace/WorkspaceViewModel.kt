@@ -1,5 +1,6 @@
 package com.graffitistudio.feature.workspace
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -370,11 +371,22 @@ class WorkspaceViewModel(
         private val projectId: String,
         private val projectRepository: ProjectRepository,
         private val preferences: WorkspacePreferences,
-        private val artworkExporter: ArtworkExporter
+        private val artworkExporter: ArtworkExporter,
+        private val appContext: Context
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return WorkspaceViewModel(projectId, projectRepository, preferences, artworkExporter) as T
+            // Attach the context before the ViewModel's init block starts loading the
+            // document, otherwise restored text layers are rasterized with the fallback
+            // typeface instead of the bundled graffiti fonts.
+            val drawingEngine = DrawingEngine().also { it.setContext(appContext) }
+            return WorkspaceViewModel(
+                projectId = projectId,
+                projectRepository = projectRepository,
+                preferences = preferences,
+                artworkExporter = artworkExporter,
+                drawingEngine = drawingEngine
+            ) as T
         }
     }
 }

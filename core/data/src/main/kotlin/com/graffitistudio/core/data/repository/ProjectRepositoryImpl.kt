@@ -107,10 +107,17 @@ class ProjectRepositoryImpl(
     }
 
     override suspend fun renameProject(projectId: String, newName: String) {
-        val now = System.currentTimeMillis()
-        projectDao.rename(projectId, newName, now)
-        val doc = storage.loadDocument(projectId) ?: return
+        // Fail before touching anything when the project is already inconsistent, so a
+        // rename cannot silently leave the Room row and the .gsp payload out of sync.
+        projectDao.getById(projectId)
+            ?: error("Project $projectId does not exist")
+        val doc = storage.loadDocument(projectId)
+            ?: error("Project data for $projectId is missing")
+
+        // Write the payload first: if it fails, the metadata keeps the old name and the
+        // two stores stay consistent.
         storage.saveDocument(doc.copy(name = newName), thumbnailPngBytes = null)
+        projectDao.rename(projectId, newName, System.currentTimeMillis())
     }
 
     override suspend fun deleteProject(projectId: String) {

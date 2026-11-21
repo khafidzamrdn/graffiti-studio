@@ -79,7 +79,9 @@ class DrawingEngine(
     private var context: Context? = null
 
     fun setContext(context: Context) {
-        this.context = context
+        // Retain only the application context: the engine lives in a ViewModel and
+        // must not keep a reference to the Activity across configuration changes.
+        this.context = context.applicationContext ?: context
         textRenderer.setContext(context)
     }
 
@@ -410,7 +412,17 @@ class DrawingEngine(
             val duplicated = source.copy(
                 id = newId,
                 name = "${source.name} Copy",
-                strokes = source.strokes.map { it.copy(id = UUID.randomUUID().toString(), layerId = newId) }
+                strokes = source.strokes.map {
+                    it.copy(id = UUID.randomUUID().toString(), layerId = newId)
+                },
+                // Text elements and effects carry the owning layer id / their own id, so
+                // both must be remapped or edits on the copy would affect the original.
+                textElements = source.textElements.map {
+                    it.copy(id = UUID.randomUUID().toString(), layerId = newId)
+                },
+                effects = source.effects.map {
+                    it.copy(id = UUID.randomUUID().toString())
+                }
             )
 
             // Fast bitmap clone from existing cached surface so strokes don't need re-rasterization
@@ -443,21 +455,35 @@ class DrawingEngine(
 
             val topLayer = doc.layers[index]
             val bottomLayer = doc.layers[index - 1]
-            val mergedStrokes = bottomLayer.strokes + topLayer.strokes.map {
-                it.copy(layerId = bottomLayer.id)
+            // A hidden or fully transparent layer contributes nothing to the merged
+            // bitmap, so its vector metadata must not be copied either: otherwise the
+            // strokes would be re-rasterized and "reappear" the next time the project
+            // is loaded from disk.
+            val topContributes = topLayer.isVisible && topLayer.opacity > 0f
+            val mergedStrokes = bottomLayer.strokes + if (topContributes) {
+                topLayer.strokes.map { it.copy(layerId = bottomLayer.id) }
+            } else {
+                emptyList()
             }
-            val mergedText = bottomLayer.textElements + topLayer.textElements.map {
-                it.copy(layerId = bottomLayer.id)
+            val mergedText = bottomLayer.textElements + if (topContributes) {
+                topLayer.textElements.map { it.copy(layerId = bottomLayer.id) }
+            } else {
+                emptyList()
+            }
+            val mergedEffects = bottomLayer.effects + if (topContributes) {
+                topLayer.effects
+            } else {
+                emptyList()
             }
             val mergedLayer = bottomLayer.copy(
                 strokes = mergedStrokes,
-                textElements = mergedText
+                textElements = mergedText,
+                effects = mergedEffects
             )
 
             val bottomSurface = layerSurfaces[bottomLayer.id]
             val hasTopSurface = layerSurfaces[topLayer.id] != null
-            val canBakePixels = bottomSurface != null && hasTopSurface &&
-                topLayer.isVisible && topLayer.opacity > 0f
+            val canBakePixels = bottomSurface != null && hasTopSurface && topContributes
 
             // Merge bakes pixels that cannot be reconstructed from metadata, so keep a
             // full pre-merge copy of the bottom layer to restore on undo.
@@ -752,7 +778,8 @@ class DrawingEngine(
                         recompositeDirtyTilesLocked()
                     }
                     onFrameInvalidated?.invoke()
-                }
+                },
+                onReleaseBackup = { backup -> renderBackend.releaseSurface(backup) }
             )
 
             historyManager.recordExecuted(command)

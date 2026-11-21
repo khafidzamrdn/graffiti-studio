@@ -24,30 +24,54 @@ class GraffitiTextRenderer {
     private var context: Context? = null
     private val typefaceCache = mutableMapOf<String, Typeface>()
 
-    /** Call once with a valid [Context] so bundled fonts under res/font/ can be loaded. */
+    /**
+     * Call once with a valid [Context] so bundled fonts under res/font/ can be loaded.
+     *
+     * Only the application context is retained to avoid leaking an Activity. Any faces
+     * resolved before the context was available (or against a previous context) are
+     * dropped so they are resolved again against the real resources.
+     */
     fun setContext(context: Context) {
-        this.context = context
+        val applicationContext = context.applicationContext ?: context
+        if (this.context === applicationContext && typefaceCache.isNotEmpty()) return
+        this.context = applicationContext
+        typefaceCache.clear()
     }
 
     private fun typefaceFor(family: String, style: Int): Typeface {
-        return typefaceCache.getOrPut(family) {
-            when (family) {
-                "sans-serif" -> Typeface.create(Typeface.SANS_SERIF, style)
-                "serif" -> Typeface.create(Typeface.SERIF, style)
-                "monospace" -> Typeface.create(Typeface.MONOSPACE, style)
-                else -> {
-                    // Resolve bundled font under res/font/ by resource name
-                    val resId = context?.let { c ->
-                        c.resources.getIdentifier(family, "font", c.packageName)
-                    } ?: 0
-                    if (resId != 0) {
-                        ResourcesCompat.getFont(context!!, resId) ?: Typeface.create(Typeface.SANS_SERIF, style)
-                    } else {
-                        Typeface.create(Typeface.SANS_SERIF, style)
-                    }
+        // The style is part of the key: the same family can be requested as BOLD for
+        // Bubble and BOLD_ITALIC for the other styles.
+        val cacheKey = "$family|$style"
+        typefaceCache[cacheKey]?.let { return it }
+
+        val resolved = when (family) {
+            "sans-serif" -> Typeface.create(Typeface.SANS_SERIF, style)
+            "serif" -> Typeface.create(Typeface.SERIF, style)
+            "monospace" -> Typeface.create(Typeface.MONOSPACE, style)
+            else -> {
+                val currentContext = context
+                if (currentContext == null) {
+                    // Do not cache this fallback: the context may arrive shortly after
+                    // (e.g. when a document is loaded before the view is attached), and a
+                    // cached fallback would hide the bundled font for the whole session.
+                    return Typeface.create(Typeface.SANS_SERIF, style)
+                }
+                // Resolve bundled font under res/font/ by resource name
+                val resId = currentContext.resources.getIdentifier(
+                    family,
+                    "font",
+                    currentContext.packageName
+                )
+                if (resId != 0) {
+                    ResourcesCompat.getFont(currentContext, resId)
+                        ?: Typeface.create(Typeface.SANS_SERIF, style)
+                } else {
+                    Typeface.create(Typeface.SANS_SERIF, style)
                 }
             }
         }
+        typefaceCache[cacheKey] = resolved
+        return resolved
     }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

@@ -20,7 +20,8 @@ class DrawStrokeCommand(
     private val dirtyRect: Rect,
     private val beforeRegionBitmap: Bitmap?,
     private val onApplyStroke: (StrokeData) -> Unit,
-    private val onRestoreRegion: (layerId: String, strokeId: String, dirtyRect: Rect, backup: Bitmap?) -> Unit
+    private val onRestoreRegion: (layerId: String, strokeId: String, dirtyRect: Rect, backup: Bitmap?) -> Unit,
+    private val onReleaseBackup: (Bitmap?) -> Unit = { it?.recycle() }
 ) : HistoryCommand {
 
     override val description: String = "${stroke.brush.type.displayName} Stroke"
@@ -31,6 +32,15 @@ class DrawStrokeCommand(
 
     override fun undo() {
         onRestoreRegion(stroke.layerId, stroke.id, dirtyRect, beforeRegionBitmap)
+    }
+
+    /**
+     * The cropped pre-stroke backup can no longer be reached once this command is
+     * dropped from history, so hand it back to the bitmap pool instead of waiting
+     * for GC.
+     */
+    override fun dispose() {
+        onReleaseBackup(beforeRegionBitmap)
     }
 }
 

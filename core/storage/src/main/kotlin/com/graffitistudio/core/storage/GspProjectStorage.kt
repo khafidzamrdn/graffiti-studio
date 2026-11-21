@@ -1,6 +1,7 @@
 package com.graffitistudio.core.storage
 
 import android.content.Context
+import android.util.Log
 import com.graffitistudio.core.domain.model.ArtworkDocument
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,6 +13,8 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -60,8 +63,9 @@ class GspProjectStorage(context: Context) {
             val thumbFile = thumbnailFileFor(document.projectId)
             val tmpThumb = File(thumbnailsDir, "${document.projectId}.png.tmp")
             FileOutputStream(tmpThumb).use { it.write(thumbnailPngBytes) }
-            if (thumbFile.exists()) thumbFile.delete()
-            tmpThumb.renameTo(thumbFile)
+            if (!replaceFile(tmpThumb, thumbFile)) {
+                Log.w(TAG, "Could not replace thumbnail ${thumbFile.name}")
+            }
         }
         target.absolutePath
     }
@@ -98,18 +102,43 @@ class GspProjectStorage(context: Context) {
         )
         val payload = json.encodeToString(manifest).toByteArray(Charsets.UTF_8)
 
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(tempFile))).use { zip ->
-            zip.putNextEntry(ZipEntry(MANIFEST_ENTRY))
-            zip.write(payload)
-            zip.closeEntry()
+        try {
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(tempFile))).use { zip ->
+                zip.putNextEntry(ZipEntry(MANIFEST_ENTRY))
+                zip.write(payload)
+                zip.closeEntry()
+            }
+        } catch (error: Throwable) {
+            tempFile.delete()
+            throw error
         }
 
-        if (target.exists()) {
-            target.delete()
-        }
-        if (!tempFile.renameTo(target)) {
-            tempFile.copyTo(target, overwrite = true)
+        if (!replaceFile(tempFile, target)) {
             tempFile.delete()
+            error("Could not write ${target.name}")
+        }
+    }
+
+    /**
+     * Replaces [target] with [source] in one step where the filesystem supports it.
+     * The previous target is never deleted before the new file is ready, so a crash
+     * mid-write cannot leave the project without a file.
+     */
+    private fun replaceFile(source: File, target: File): Boolean {
+        return try {
+            Files.move(
+                source.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+            true
+        } catch (error: Throwable) {
+            Log.w(TAG, "Atomic replace failed for ${target.name}, falling back", error)
+            runCatching {
+                source.copyTo(target, overwrite = true)
+                source.delete()
+            }.isSuccess
         }
     }
 
@@ -120,16 +149,29 @@ class GspProjectStorage(context: Context) {
                 while (entry != null) {
                     if (entry.name == MANIFEST_ENTRY) {
                         val content = zip.readBytes().toString(Charsets.UTF_8)
-                        return@runCatching json.decodeFromString<GspManifest>(content).document
+                        val manifest = json.decodeFromString<GspManifest>(content)
+                        if (manifest.formatVersion > GspManifest.CURRENT_FORMAT_VERSION) {
+                            Log.w(
+                                TAG,
+                                "Skipping ${file.name}: format ${manifest.formatVersion} is newer " +
+                                    "than supported ${GspManifest.CURRENT_FORMAT_VERSION}"
+                            )
+                            return@runCatching null
+                        }
+                        return@runCatching manifest.document
                     }
                     entry = zip.nextEntry
                 }
+                Log.w(TAG, "Missing $MANIFEST_ENTRY in ${file.name}")
                 null
             }
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to read ${file.name}", error)
         }.getOrNull()
     }
 
     companion object {
+        private const val TAG = "GspProjectStorage"
         private const val MANIFEST_ENTRY = "manifest.json"
     }
 }

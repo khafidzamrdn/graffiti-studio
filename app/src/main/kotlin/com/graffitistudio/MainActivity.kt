@@ -53,7 +53,8 @@ class MainActivity : ComponentActivity() {
                                 projectId = projectId,
                                 projectRepository = container.projectRepository,
                                 preferences = container.workspacePreferences,
-                                artworkExporter = container.artworkExporter
+                                artworkExporter = container.artworkExporter,
+                                appContext = applicationContext
                             )
                         )
                         WorkspaceScreen(
